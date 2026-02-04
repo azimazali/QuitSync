@@ -83,9 +83,42 @@ class DashboardController extends Controller
             }
         }
         arsort($tagCounts);
+        arsort($tagCounts);
         $topTopics = array_slice($tagCounts, 0, 5, true);
 
-        return view('dashboard', compact('smokedToday', 'totalPenalty', 'calendar', 'topTopics'));
+        // Leaderboard Logic
+        $users = \App\Models\User::where('is_admin', 0)->get();
+        $leaderboard = $users->map(function ($u) {
+            if (!$u->quit_date) {
+                return ['name' => $u->name, 'days' => 0];
+            }
+
+            $lastSmoke = SmokingLog::where('user_id', $u->id)
+                ->where('type', 'smoked')
+                ->max('smoked_at');
+
+            $startDate = $u->quit_date;
+
+            if ($lastSmoke) {
+                $lastSmokeDate = Carbon::parse($lastSmoke);
+                if ($lastSmokeDate->gt($startDate)) {
+                    $startDate = $lastSmokeDate;
+                }
+            }
+
+            $days = (int) $startDate->diffInDays(Carbon::now());
+
+            return [
+                'name' => $u->name,
+                'days' => $days,
+                // Mask name for privacy if needed, e.g., "Azim A."
+                'display_name' => $u->name
+            ];
+        })->filter(function ($item) {
+            return $item['days'] > 0; // Only show positive streaks
+        })->sortByDesc('days')->values()->take(5);
+
+        return view('dashboard', compact('smokedToday', 'totalPenalty', 'calendar', 'topTopics', 'leaderboard'));
     }
 }
 

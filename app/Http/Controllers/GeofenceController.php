@@ -5,6 +5,7 @@ namespace App\Http\Controllers;
 use App\Models\Geofence;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Auth;
+use Illuminate\Support\Facades\DB;
 
 class GeofenceController extends Controller
 {
@@ -28,20 +29,51 @@ class GeofenceController extends Controller
         return view('geofences.index', compact('geofences'));
     }
 
+
+
+    public function dismissRecommendation(Request $request)
+    {
+        $request->validate([
+            'latitude' => 'required|numeric',
+            'longitude' => 'required|numeric',
+        ]);
+
+        DB::table('dismissed_recommendations')->insert([
+            'user_id' => Auth::id(),
+            'latitude' => $request->latitude,
+            'longitude' => $request->longitude,
+            'radius' => 100, // Matching the cluster radius
+            'created_at' => now(),
+            'updated_at' => now(),
+        ]);
+
+        return back()->with('status', 'Recommendation dismissed.');
+    }
+
     private function getRecommendedZones()
     {
         // Filter out admins from user count and geofences
         $totalUsers = \App\Models\User::where('is_admin', 0)->count();
 
-        if ($totalUsers < 2)
+        // Ensure new users see recommendations as long as there is community data
+        // If I am the only user, no recommendations. If there are >= 2 users, show.
+        // Or if I am a new user, show recommendations if they exist.
+        // Actually, we want to show recommendations derived from OTHER users.
+
+        $otherUsersCount = \App\Models\User::where('is_admin', 0)
+            ->where('id', '!=', Auth::id())
+            ->count();
+
+        if ($otherUsersCount < 1)
             return collect([]);
 
-        $threshold = $totalUsers / 2;
+        $threshold = max(1, $otherUsersCount / 2); // At least 50% of OTHER users
 
-        // Filter out admin geofences
+        // Filter out admin geofences and my own geofences
         $allGeofences = Geofence::whereHas('user', function ($q) {
             $q->where('is_admin', 0);
-        })->get();
+        })->where('user_id', '!=', Auth::id())
+            ->get();
 
         $clusters = [];
         $radius = 100; // Cluster radius in meters
@@ -64,10 +96,15 @@ class GeofenceController extends Controller
 
         $recommendations = collect([]);
 
+        // Load dismissed zones for this user
+        $dismissed = DB::table('dismissed_recommendations')
+            ->where('user_id', Auth::id())
+            ->get();
+
         foreach ($clusters as $cluster) {
             $userIds = collect($cluster)->pluck('user_id')->unique();
 
-            if ($userIds->count() > $threshold) {
+            if ($userIds->count() >= $threshold) { // Changed to >= to be inclusive
                 // Calculate centroid
                 $latSum = 0;
                 $lngSum = 0;
@@ -76,14 +113,25 @@ class GeofenceController extends Controller
                     $lngSum += $c->longitude;
                 }
                 $count = count($cluster);
+                $avgLat = $latSum / $count;
+                $avgLng = $lngSum / $count;
+
+                // Check if this centroid is near a dismissed zone
+                $isDismissed = $dismissed->contains(function ($d) use ($avgLat, $avgLng) {
+                    return $this->calculateDistance($avgLat, $avgLng, $d->latitude, $d->longitude) < ($d->radius + 50); // Small buffer
+                });
+
+                if ($isDismissed) {
+                    continue;
+                }
 
                 $rec = new Geofence();
                 $rec->name = "Community Hotspot";
-                $rec->latitude = $latSum / $count;
-                $rec->longitude = $lngSum / $count;
+                $rec->latitude = $avgLat;
+                $rec->longitude = $avgLng;
                 $rec->radius = 150;
-                $rec->risk_score = 'high'; // Assume high risk for popular zones
-                $rec->is_recommended = true; // Dynamic property
+                $rec->risk_score = 'high';
+                $rec->is_recommended = true;
 
                 $recommendations->push($rec);
             }

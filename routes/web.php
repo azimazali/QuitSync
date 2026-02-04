@@ -45,6 +45,10 @@ Route::put('/geofences/{geofence}', [GeofenceController::class, 'update'])
     ->middleware(['auth', 'verified'])
     ->name('geofences.update');
 
+Route::post('/geofences/recommendations/dismiss', [GeofenceController::class, 'dismissRecommendation'])
+    ->middleware(['auth', 'verified'])
+    ->name('geofences.recommendations.dismiss');
+
 Route::delete('/geofences/{geofence}', [GeofenceController::class, 'destroy'])
     ->middleware(['auth', 'verified'])
     ->name('geofences.destroy');

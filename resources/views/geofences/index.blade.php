@@ -105,6 +105,20 @@
                                             </button>
                                         </form>
                                     </div>
+                                @else
+                                    <div class="flex items-center gap-2 opacity-0 group-hover:opacity-100 transition">
+                                        <form action="{{ route('geofences.recommendations.dismiss') }}" method="POST"
+                                            onsubmit="return confirm('Dismiss this recommendation?');">
+                                            @csrf
+                                            <input type="hidden" name="latitude" value="{{ $fence->latitude }}">
+                                            <input type="hidden" name="longitude" value="{{ $fence->longitude }}">
+                                            <button type="submit"
+                                                class="text-gray-400 hover:text-gray-600 text-xs font-medium border border-gray-300 rounded px-2 py-1"
+                                                title="Dismiss">
+                                                Dismiss
+                                            </button>
+                                        </form>
+                                    </div>
                                 @endif
                             </li>
                         @empty
@@ -302,6 +316,6 @@
 
     <!-- Google Maps Script (Loaded last to ensure initMap is defined) -->
     <script
-        src="https://maps.googleapis.com/maps/api/js?key={{ env('GOOGLE_MAPS_API_KEY') }}&callback=initMap&libraries=geometry,marker"
+        src="https://maps.googleapis.com/maps/api/js?key={{ config('services.google.maps_key') }}&callback=initMap&libraries=geometry,marker"
         async defer></script>
 </x-app-layout>

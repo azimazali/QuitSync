@@ -66,8 +66,16 @@
                 <div class="bg-white overflow-hidden shadow-sm sm:rounded-lg p-6">
                     <h3 class="text-lg font-medium text-gray-900 mb-2">Total Savings</h3>
                     <div class="flex flex-col items-center justify-center h-full pb-6">
-                        <span class="text-4xl font-bold text-emerald-600 font-mono" id="savingsDisplay">$0.00</span>
-                        <span class="text-sm text-gray-400 mt-2">Real-time Est.</span>
+                        @if(Auth::user()->quit_date)
+                            <span class="text-4xl font-bold text-emerald-600 font-mono" id="savingsDisplay">RM0.0000</span>
+                            <span class="text-sm text-gray-400 mt-2">Real-time Est.</span>
+                        @else
+                            <span class="text-gray-500 mb-2">Start tracking your savings!</span>
+                            <a href="{{ route('profile.edit') }}"
+                                class="text-sm bg-indigo-600 hover:bg-indigo-700 text-white py-2 px-4 rounded shadow transition">
+                                Set Quit Date
+                            </a>
+                        @endif
                     </div>
                 </div>
             </div>
@@ -101,11 +109,11 @@
 
                     @foreach ($calendar as $day)
                         <div class="p-2 rounded-lg flex items-center justify-center relative
-                                                                        {{ $day['status'] === 'smoked' ? 'bg-red-100 text-red-700' : '' }}
-                                                                        {{ $day['status'] === 'clean' ? 'bg-emerald-100 text-emerald-700' : '' }}
-                                                                        {{ $day['status'] === 'future' ? 'text-gray-300' : '' }}
-                                                                        {{ $day['is_today'] ? 'ring-2 ring-indigo-500 font-bold' : '' }}
-                                                                    ">
+                                                                                    {{ $day['status'] === 'smoked' ? 'bg-red-100 text-red-700' : '' }}
+                                                                                    {{ $day['status'] === 'clean' ? 'bg-emerald-100 text-emerald-700' : '' }}
+                                                                                    {{ $day['status'] === 'future' ? 'text-gray-300' : '' }}
+                                                                                    {{ $day['is_today'] ? 'ring-2 ring-indigo-500 font-bold' : '' }}
+                                                                                ">
                             {{ $day['day'] }}
                         </div>
                     @endforeach
@@ -152,6 +160,83 @@
                         <p class="mt-1">We analyze your posts to find what might be triggering you.</p>
                     </div>
                 @endif
+            </div>
+        </div>
+
+        <!-- Leaderboard (Separate Container) -->
+        <div class="max-w-7xl mx-auto sm:px-6 lg:px-8 mt-8">
+            <div class="bg-white overflow-hidden shadow-sm sm:rounded-lg p-6">
+                <h3 class="text-lg font-medium text-gray-900 mb-4 flex items-center">
+                    <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5 text-amber-500 mr-2" viewBox="0 0 20 20"
+                        fill="currentColor">
+                        <path fill-rule="evenodd"
+                            d="M10 2a1 1 0 011 1v1.323l3.954 1.582 1.699-3.181a1 1 0 011.827.836L17.455 6.75l2.094 3.139a1 1 0 01-1.636 1.155l-2.093-3.14-3.484 1.394v4.444l2.016 1.344a9.967 9.967 0 01-1.076 1.627l-1.94-1.294V18a1 1 0 11-2 0v-2.715l-1.94 1.294a9.972 9.972 0 01-1.076-1.627l2.016-1.344V9.104l-3.484-1.394-2.093 3.14a1 1 0 01-1.636-1.155l2.094-3.139L2.52 3.536a1 1 0 011.827-.836l1.699 3.181L10 4.323V3a1 1 0 01-1-1z"
+                            clip-rule="evenodd" />
+                    </svg>
+                    Smoke-Free Leaderboard
+                </h3>
+
+                <div class="overflow-x-auto">
+                    <table class="min-w-full divide-y divide-gray-200">
+                        <thead class="bg-gray-50">
+                            <tr>
+                                <th scope="col"
+                                    class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                                    Rank</th>
+                                <th scope="col"
+                                    class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                                    User</th>
+                                <th scope="col"
+                                    class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                                    Streak</th>
+                                <th scope="col"
+                                    class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                                    Level</th>
+                            </tr>
+                        </thead>
+                        <tbody class="bg-white divide-y divide-gray-200">
+                            @forelse($leaderboard as $index => $user)
+                                <tr>
+                                    <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
+                                        @if($index == 0) 🥇 @elseif($index == 1) 🥈 @elseif($index == 2) 🥉 @else
+                                        #{{ $index + 1 }} @endif
+                                    </td>
+                                    <td class="px-6 py-4 whitespace-nowrap text-sm font-medium text-gray-900">
+                                        {{ $user['display_name'] }}
+                                        @if($index == 0)
+                                            <span
+                                                class="ml-2 inline-flex items-center px-2 py-0.5 rounded text-xs font-medium bg-yellow-100 text-yellow-800">
+                                                Champion
+                                            </span>
+                                        @endif
+                                    </td>
+                                    <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
+                                        <span class="font-bold text-emerald-600">{{ $user['days'] }}</span> days
+                                    </td>
+                                    <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
+                                        @if($user['days'] > 365)
+                                            Legend
+                                        @elseif($user['days'] > 90)
+                                            Master
+                                        @elseif($user['days'] > 30)
+                                            Pro
+                                        @elseif($user['days'] > 7)
+                                            Rookie
+                                        @else
+                                            Newbie
+                                        @endif
+                                    </td>
+                                </tr>
+                            @empty
+                                <tr>
+                                    <td colspan="4" class="px-6 py-4 whitespace-nowrap text-sm text-gray-500 text-center">
+                                        No streaks yet. Be the first!
+                                    </td>
+                                </tr>
+                            @endforelse
+                        </tbody>
+                    </table>
+                </div>
             </div>
 
             <!-- Log Modal -->
@@ -227,7 +312,8 @@
         </div> <!-- Closing div for dashboardLogger moved here -->
 
         <!-- Geocoder Script -->
-        <script src="https://maps.googleapis.com/maps/api/js?key={{ env('GOOGLE_MAPS_API_KEY') }}&libraries=places"
+        <script
+            src="https://maps.googleapis.com/maps/api/js?key={{ config('services.google.maps_key') }}&libraries=places"
             async defer></script>
 
         <script>

@@ -25,10 +25,7 @@
     <div class="min-h-screen flex flex-col sm:justify-center items-center pt-6 sm:pt-0">
         <div>
             <a href="/">
-                <div class="flex items-center gap-2">
-                    <!-- You might want to use the actual logo component or text if no logo svg -->
-                    <span class="text-3xl font-bold text-emerald-600 tracking-tight">QUITSYNC</span>
-                </div>
+                <x-application-logo class="text-3xl font-bold text-emerald-600 tracking-tight" />
             </a>
         </div>
 
