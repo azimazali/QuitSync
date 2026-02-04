@@ -56,4 +56,10 @@ Route::middleware('auth')->group(function () {
 
     Route::post('logout', [AuthenticatedSessionController::class, 'destroy'])
         ->name('logout');
+
+    Route::get('onboarding', [\App\Http\Controllers\OnboardingController::class, 'create'])
+        ->name('onboarding');
+
+    Route::post('onboarding', [\App\Http\Controllers\OnboardingController::class, 'store'])
+        ->name('onboarding.store');
 });

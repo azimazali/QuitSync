@@ -1,22 +1,21 @@
 <x-app-layout>
-    <x-slot name="header">
-        <div class="flex justify-between items-center">
-            <h2 class="font-semibold text-xl text-gray-800 leading-tight">
-                {{ __('View Geofence') }}
-            </h2>
-            <a href="{{ route('dashboard') }}" class="text-gray-600 hover:text-gray-900 text-sm">
-                &larr; Back to Dashboard
-            </a>
-        </div>
-    </x-slot>
 
     <div class="py-12">
         <div class="max-w-7xl mx-auto sm:px-6 lg:px-8">
             <div class="bg-white overflow-hidden shadow-sm sm:rounded-lg p-6">
                 <div class="flex justify-between items-center mb-6">
                     <div>
-                        <h1 class="text-2xl font-bold text-gray-900">{{ $geofence->name }}</h1>
-                        <p class="text-gray-500">Radius: {{ $geofence->radius }} meters</p>
+                        <div class="flex items-center gap-4">
+                            <a href="{{ route('geofences.index') }}">
+                                <x-secondary-button type="button">
+                                    &larr; Back to Zones
+                                </x-secondary-button>
+                            </a>
+                            <div>
+                                <h1 class="text-2xl font-bold text-gray-900">{{ $geofence->name }}</h1>
+                                <p class="text-gray-500">Radius: {{ $geofence->radius }} meters</p>
+                            </div>
+                        </div>
                     </div>
                     <div class="flex gap-2">
                         <a href="{{ route('geofences.edit', $geofence) }}"

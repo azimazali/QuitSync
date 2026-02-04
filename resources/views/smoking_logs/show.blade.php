@@ -1,9 +1,5 @@
 <x-app-layout>
-    <x-slot name="header">
-        <h2 class="font-semibold text-xl text-gray-800 leading-tight">
-            {{ __('View Smoking Log') }}
-        </h2>
-    </x-slot>
+    <!-- Header removed -->
 
     <div class="py-12">
         <div class="max-w-7xl mx-auto sm:px-6 lg:px-8">
@@ -29,18 +25,19 @@
                         </div>
                     </div>
 
-                     <!-- Location (Optional) -->
-                     @if($smokingLog->address)
-                     <div class="mb-4">
-                         <x-input-label :value="__('Location')" />
-                         <div class="text-sm text-gray-500 mt-1">{{ $smokingLog->address }}</div>
-                     </div>
-                     @endif
+                    <!-- Location (Optional) -->
+                    @if($smokingLog->address)
+                        <div class="mb-4">
+                            <x-input-label :value="__('Location')" />
+                            <div class="text-sm text-gray-500 mt-1">{{ $smokingLog->address }}</div>
+                        </div>
+                    @endif
 
                     <div class="flex items-center justify-end mt-6">
-                        <a href="{{ route('dashboard') }}"
-                            class="text-sm font-medium text-indigo-600 hover:text-indigo-900">
-                            &larr; {{ __('Back to Dashboard') }}
+                        <a href="{{ route('activity.index') }}">
+                            <x-secondary-button type="button">
+                                &larr; {{ __('Back to Log Activity') }}
+                            </x-secondary-button>
                         </a>
                     </div>
                 </div>

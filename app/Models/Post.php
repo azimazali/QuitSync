@@ -16,6 +16,13 @@ class Post extends Model
         'sentiment_score',
         'sentiment_magnitude',
         'risk_level',
+        'is_locked',
+        'category',
+        'tags',
+    ];
+
+    protected $casts = [
+        'tags' => 'array',
     ];
 
     public function user()

@@ -1,14 +1,4 @@
 <x-app-layout>
-    <x-slot name="header">
-        <div class="flex justify-between items-center">
-            <h2 class="font-semibold text-xl text-gray-800 leading-tight">
-                {{ __('Edit Geofence') }}
-            </h2>
-            <a href="{{ route('dashboard') }}" class="text-gray-600 hover:text-gray-900 text-sm">
-                &larr; Cancel
-            </a>
-        </div>
-    </x-slot>
 
     <div class="py-12">
         <div class="max-w-7xl mx-auto sm:px-6 lg:px-8">
@@ -37,13 +27,16 @@
                             <input type="hidden" name="latitude" id="lat" value="{{ $geofence->latitude }}">
                             <input type="hidden" name="longitude" id="lng" value="{{ $geofence->longitude }}">
 
-                            <div class="pt-4">
+                            <div class="pt-4 flex items-center justify-between">
+                                <a href="{{ route('geofences.index') }}">
+                                    <x-secondary-button type="button">Cancel</x-secondary-button>
+                                </a>
                                 <button type="submit"
-                                    class="w-full bg-indigo-600 hover:bg-indigo-700 text-white font-bold py-2 px-4 rounded shadow transition">
+                                    class="bg-indigo-600 hover:bg-indigo-700 text-white font-bold py-2 px-4 rounded shadow transition">
                                     Update Zone
                                 </button>
                             </div>
-                            <p class="text-xs text-gray-500">Drag the red circle on the map to move the zone.</p>
+                            <p class="text-xs text-gray-500 mt-2">Drag the red circle on the map to move the zone.</p>
                         </div>
 
                         <!-- Map -->

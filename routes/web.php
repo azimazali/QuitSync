@@ -60,6 +60,7 @@ Route::middleware(['auth', 'verified'])->group(function () {
     Route::get('/forum/{post}/edit', [ForumController::class, 'edit'])->name('forum.edit');
     Route::put('/forum/{post}', [ForumController::class, 'update'])->name('forum.update');
     Route::delete('/forum/{post}', [ForumController::class, 'destroy'])->name('forum.destroy');
+    Route::post('/forum/{post}/lock', [ForumController::class, 'toggleLock'])->name('forum.lock');
 
     Route::post('/forum/{post}/comments', [CommentController::class, 'store'])->name('comments.store');
     Route::delete('/comments/{comment}', [CommentController::class, 'destroy'])->name('comments.destroy');

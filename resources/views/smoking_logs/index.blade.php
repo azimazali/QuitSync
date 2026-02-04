@@ -1,9 +1,5 @@
 <x-app-layout>
-    <x-slot name="header">
-        <h2 class="font-semibold text-xl text-gray-800 leading-tight">
-            {{ __('Activity') }}
-        </h2>
-    </x-slot>
+    <!-- Header removed -->
 
     <div class="py-12">
         <div class="max-w-7xl mx-auto sm:px-6 lg:px-8 space-y-6">
@@ -89,10 +85,11 @@
                                 </div>
                                 <div class="text-xs text-gray-500 truncate">{{ $log->address ?? 'No address' }}
                                     @if($log->risk_level)
-                                        <span class="ml-2 inline-flex items-center px-2 py-0.5 rounded text-xs font-medium
-                                                {{ $log->risk_level === 'high' ? 'bg-red-100 text-red-800' : '' }}
-                                                {{ $log->risk_level === 'moderate' ? 'bg-amber-100 text-amber-800' : '' }}
-                                                {{ $log->risk_level === 'low' ? 'bg-emerald-100 text-emerald-800' : '' }}">
+                                        <span
+                                            class="ml-2 inline-flex items-center px-2 py-0.5 rounded text-xs font-medium
+                                                        {{ $log->risk_level === 'high' ? 'bg-red-100 text-red-800' : '' }}
+                                                        {{ $log->risk_level === 'moderate' ? 'bg-amber-100 text-amber-800' : '' }}
+                                                        {{ $log->risk_level === 'low' ? 'bg-emerald-100 text-emerald-800' : '' }}">
                                             Risk: {{ ucfirst($log->risk_level) }}
                                         </span>
                                     @endif

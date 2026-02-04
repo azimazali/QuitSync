@@ -61,12 +61,18 @@ class SmokingLogController extends Controller
         ]);
 
         $message = '';
-        $redirect = redirect()->route('activity.index'); // Default redirect
+        $redirect = back(); // Redirect back to wherever they came from (Dashboard or Activity)
 
         // Trigger dynamic geofencing logic ONLY if smoked
         if ($request->type === 'smoked') {
             $this->geofenceService->detectAndCreateAutoGeofences(Auth::user());
-            $message = 'Smoking event logged.';
+
+            // Reset Quit Date to NOW to restart savings counter
+            $user = Auth::user();
+            $user->quit_date = now();
+            $user->save();
+
+            $message = 'Smoking event logged. Savings counter reset.';
         } else {
             $message = 'Great job resisting!';
         }

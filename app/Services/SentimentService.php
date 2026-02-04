@@ -95,4 +95,54 @@ class SentimentService
             return 'low';
         }
     }
+
+    public function analyzeEntities(string $text): array
+    {
+        if (!$this->client)
+            return [];
+
+        try {
+            $document = (new Document())->setContent($text)->setType(Type::PLAIN_TEXT);
+            $response = $this->client->analyzeEntities((new \Google\Cloud\Language\V1\AnalyzeEntitiesRequest())->setDocument($document));
+
+            $entities = [];
+            foreach ($response->getEntities() as $entity) {
+                // Filter for high salience (relevance) nouns
+                if ($entity->getSalience() > 0.05) {
+                    $entities[] = $entity->getName();
+                }
+            }
+
+            return array_slice(array_unique($entities), 0, 5); // Return top 5 unique
+        } catch (\Exception $e) {
+            Log::error("Entity Analysis Error: " . $e->getMessage());
+            return [];
+        }
+    }
+
+    public function classifyContent(string $text): ?string
+    {
+        if (!$this->client)
+            return null;
+
+        // Classification requires at least 20 words
+        if (str_word_count($text) < 20) {
+            return null;
+        }
+
+        try {
+            $document = (new Document())->setContent($text)->setType(Type::PLAIN_TEXT);
+            $response = $this->client->classifyText((new \Google\Cloud\Language\V1\ClassifyTextRequest())->setDocument($document));
+
+            foreach ($response->getCategories() as $category) {
+                return $category->getName(); // Return the first (highest confidence) category
+            }
+
+            return null;
+        } catch (\Exception $e) {
+            // "InvalidArgumentException: The text content is too short" is common, ignore it or log info
+            Log::warning("Content Classification Error: " . $e->getMessage());
+            return null;
+        }
+    }
 }

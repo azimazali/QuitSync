@@ -1,9 +1,5 @@
 <x-app-layout>
-    <x-slot name="header">
-        <h2 class="font-semibold text-xl text-gray-800 leading-tight">
-            {{ __('Create New User') }}
-        </h2>
-    </x-slot>
+
 
     <div class="py-12">
         <div class="max-w-7xl mx-auto sm:px-6 lg:px-8">
@@ -31,7 +27,8 @@
                         <!-- Role -->
                         <div class="mt-4">
                             <x-input-label for="role" :value="__('Role')" />
-                            <select id="role" name="role" class="block mt-1 w-full border-gray-300 focus:border-indigo-500 focus:ring-indigo-500 rounded-md shadow-sm">
+                            <select id="role" name="role"
+                                class="block mt-1 w-full border-gray-300 focus:border-indigo-500 focus:ring-indigo-500 rounded-md shadow-sm">
                                 <option value="0" {{ old('role') == '0' ? 'selected' : '' }}>User</option>
                                 <option value="1" {{ old('role') == '1' ? 'selected' : '' }}>Admin</option>
                             </select>

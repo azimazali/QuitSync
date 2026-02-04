@@ -1,14 +1,4 @@
 <x-app-layout>
-    <x-slot name="header">
-        <div class="flex justify-between items-center">
-            <h2 class="font-semibold text-xl text-gray-800 leading-tight">
-                {{ __('Forum Discussion') }}
-            </h2>
-            <a href="{{ route('forum.index') }}" class="text-gray-600 hover:text-gray-900 text-sm">
-                &larr; Back to Forum
-            </a>
-        </div>
-    </x-slot>
 
     <div class="py-12">
         <div class="max-w-5xl mx-auto sm:px-6 lg:px-8">
@@ -24,16 +14,45 @@
                                 {{ ucfirst($post->risk_level) }} Risk
                             </span>
 
-                            @if ($post->user_id === Auth::id())
+                            @if($post->is_locked)
+                                <span
+                                    class="px-3 py-1 text-sm font-semibold rounded-full bg-gray-100 text-gray-800 border border-gray-200">
+                                    🔒 Locked
+                                </span>
+                            @endif
+
+                            @if ($post->user_id === Auth::id() || Auth::user()->is_admin)
                                 <div class="flex items-center space-x-2">
-                                    <a href="{{ route('forum.edit', $post) }}"
-                                        class="text-gray-400 hover:text-blue-600 transition p-1 rounded hover:bg-blue-50">
-                                        <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5" fill="none"
-                                            viewBox="0 0 24 24" stroke="currentColor">
-                                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
-                                                d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z" />
-                                        </svg>
-                                    </a>
+
+                                    {{-- Lock/Unlock --}}
+                                    @if(Auth::user()->is_admin)
+                                        <form action="{{ route('forum.lock', $post) }}" method="POST" class="inline">
+                                            @csrf
+                                            <button type="submit"
+                                                class="text-gray-400 hover:text-yellow-600 transition p-1 rounded hover:bg-yellow-50"
+                                                title="{{ $post->is_locked ? 'Unlock' : 'Lock' }}">
+                                                <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5" fill="none"
+                                                    viewBox="0 0 24 24" stroke="currentColor">
+                                                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                                                        d="{{ $post->is_locked ? 'M8 11V7a4 4 0 118 0m-4 8v2m-6 4h12a2 2 0 002-2v-6a2 2 0 00-2-2H6a2 2 0 00-2 2v6a2 2 0 002 2z' : 'M12 15v2m-6 4h12a2 2 0 002-2v-6a2 2 0 00-2-2H6a2 2 0 00-2 2v6a2 2 0 002 2zm10-10V7a4 4 0 00-8 0v4h8z' }}" />
+                                                </svg>
+                                            </button>
+                                        </form>
+                                    @endif
+
+                                    {{-- Edit (Owner Only) --}}
+                                    @if($post->user_id === Auth::id())
+                                        <a href="{{ route('forum.edit', $post) }}"
+                                            class="text-gray-400 hover:text-blue-600 transition p-1 rounded hover:bg-blue-50">
+                                            <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5" fill="none"
+                                                viewBox="0 0 24 24" stroke="currentColor">
+                                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                                                    d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z" />
+                                            </svg>
+                                        </a>
+                                    @endif
+
+                                    {{-- Delete (Owner or Admin) --}}
                                     <form action="{{ route('forum.destroy', $post) }}" method="POST"
                                         onsubmit="return confirm('Are you sure you want to delete this post?');"
                                         class="inline">
@@ -62,28 +81,38 @@
                     {!! nl2br(e($post->body)) !!}
                 </div>
 
-
-
                 <!-- Comments Section -->
                 <div class="mt-8 border-t border-gray-200 pt-8">
                     <h3 class="text-xl font-bold text-gray-900 mb-6">Comments</h3>
 
-                    <!-- Comment Form -->
-                    <form action="{{ route('comments.store', $post) }}" method="POST" class="mb-8">
-                        @csrf
-                        <div class="mb-4">
-                            <label for="body" class="sr-only">Your Comment</label>
-                            <textarea name="body" id="body" rows="3" required
-                                class="w-full rounded-md border-gray-300 shadow-sm focus:border-indigo-500 focus:ring-indigo-500 sm:text-sm"
-                                placeholder="What are your thoughts?"></textarea>
+                    @if($post->is_locked)
+                        <div
+                            class="bg-gray-100 border border-gray-300 text-gray-600 px-4 py-3 rounded-md mb-8 flex items-center gap-2">
+                            <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5" viewBox="0 0 20 20" fill="currentColor">
+                                <path fill-rule="evenodd"
+                                    d="M5 9V7a5 5 0 0110 0v2a2 2 0 012 2v5a2 2 0 01-2 2H5a2 2 0 01-2-2v-5a2 2 0 012-2zm8-2v2H7V7a3 3 0 016 0z"
+                                    clip-rule="evenodd" />
+                            </svg>
+                            <span class="font-semibold">This thread has been locked by the moderators.</span>
                         </div>
-                        <div class="flex justify-end">
-                            <button type="submit"
-                                class="inline-flex items-center px-4 py-2 bg-indigo-600 border border-transparent rounded-md font-semibold text-xs text-white uppercase tracking-widest hover:bg-indigo-700 active:bg-indigo-900 focus:outline-none focus:border-indigo-900 focus:ring ring-indigo-300 disabled:opacity-25 transition ease-in-out duration-150">
-                                Post Comment
-                            </button>
-                        </div>
-                    </form>
+                    @else
+                        <!-- Comment Form -->
+                        <form action="{{ route('comments.store', $post) }}" method="POST" class="mb-8">
+                            @csrf
+                            <div class="mb-4">
+                                <label for="body" class="sr-only">Your Comment</label>
+                                <textarea name="body" id="body" rows="3" required
+                                    class="w-full rounded-md border-gray-300 shadow-sm focus:border-indigo-500 focus:ring-indigo-500 sm:text-sm"
+                                    placeholder="What are your thoughts?"></textarea>
+                            </div>
+                            <div class="flex justify-end">
+                                <button type="submit"
+                                    class="inline-flex items-center px-4 py-2 bg-indigo-600 border border-transparent rounded-md font-semibold text-xs text-white uppercase tracking-widest hover:bg-indigo-700 active:bg-indigo-900 focus:outline-none focus:border-indigo-900 focus:ring ring-indigo-300 disabled:opacity-25 transition ease-in-out duration-150">
+                                    Post Comment
+                                </button>
+                            </div>
+                        </form>
+                    @endif
 
                     <!-- Comments List -->
                     <div class="space-y-6">

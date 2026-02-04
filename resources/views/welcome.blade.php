@@ -13,7 +13,7 @@
     @vite(['resources/css/app.css', 'resources/js/app.js'])
 </head>
 
-<body class="font-sans antialiased text-gray-900 bg-white">
+<body class="font-sans antialiased text-gray-900 bg-emerald-50">
 
     <!-- Navbar -->
     <nav class="fixed w-full z-50 bg-white/90 backdrop-blur-md border-b border-gray-100">
@@ -78,7 +78,7 @@
     </section>
 
     <!-- Features Section -->
-    <section class="py-20 bg-gray-50">
+    <section class="py-20">
         <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
             <div class="grid md:grid-cols-3 gap-10">
 

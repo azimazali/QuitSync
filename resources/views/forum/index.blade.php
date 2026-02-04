@@ -1,15 +1,4 @@
 <x-app-layout>
-    <x-slot name="header">
-        <div class="flex justify-between items-center">
-            <h2 class="font-semibold text-xl text-gray-800 leading-tight">
-                {{ __('Community Forum') }}
-            </h2>
-            <a href="{{ route('forum.create') }}"
-                class="bg-emerald-600 hover:bg-emerald-700 text-white font-bold py-2 px-4 rounded shadow transition text-sm">
-                New Post
-            </a>
-        </div>
-    </x-slot>
 
     <div class="py-12">
         <div class="max-w-7xl mx-auto sm:px-6 lg:px-8">
@@ -27,6 +16,16 @@
                     <p>{{ session('warning') }}</p>
                 </div>
             @endif
+
+            <div class="flex justify-between items-center mb-6">
+                <h2 class="text-2xl font-bold text-gray-800">Community Forum</h2>
+                <a href="{{ route('forum.create') }}" class="bg-emerald-600 hover:bg-emerald-700 text-white font-bold py-2 px-4 rounded shadow transition flex items-center gap-2">
+                    <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5" viewBox="0 0 20 20" fill="currentColor">
+                        <path fill-rule="evenodd" d="M10 3a1 1 0 011 1v5h5a1 1 0 110 2h-5v5a1 1 0 11-2 0v-5H4a1 1 0 110-2h5V4a1 1 0 011-1z" clip-rule="evenodd" />
+                    </svg>
+                    New Post
+                </a>
+            </div>
 
             <div class="space-y-6">
                 @forelse ($posts as $post)
@@ -46,13 +45,56 @@
                                             @else bg-green-100 text-green-800 @endif">
                                         {{ ucfirst($post->risk_level) }} Risk
                                     </span>
-                                    @if ($post->user_id === Auth::id())
+                                    
+                                    @if($post->is_locked)
+                                        <span class="px-2 py-1 text-xs font-semibold rounded-full bg-gray-100 text-gray-800 border border-gray-200">
+                                            🔒 Locked
+                                        </span>
+                                    @endif
+
+                                    {{-- Category Badge --}}
+                                    @if($post->category)
+                                        <span class="px-2 py-1 text-xs font-semibold rounded-full bg-indigo-50 text-indigo-700 border border-indigo-100" title="Auto-Categorized">
+                                            📂 {{ str_replace('/', '', strrchr($post->category, '/') ?: $post->category) }}
+                                        </span>
+                                    @endif
+
+                                    {{-- Entity Tags --}}
+                                    @if(!empty($post->tags))
+                                        <div class="hidden sm:flex -space-x-1 overflow-hidden">
+                                            @foreach($post->tags as $tag)
+                                                <span class="inline-flex items-center px-2 py-0.5 rounded text-xs font-medium bg-gray-100 text-gray-800 border border-gray-200" style="margin-right: 4px;">
+                                                    #{{ $tag }}
+                                                </span>
+                                            @endforeach
+                                        </div>
+                                    @endif
+
+                                    @if ($post->user_id === Auth::id() || Auth::user()->is_admin)
                                         <div class="flex items-center space-x-2 ml-2">
-                                            <a href="{{ route('forum.edit', $post) }}" class="text-gray-400 hover:text-blue-600 transition">
-                                                <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                                                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z" />
-                                                </svg>
-                                            </a>
+                                            
+                                            {{-- Lock/Unlock --}}
+                                            @if(Auth::user()->is_admin)
+                                                <form action="{{ route('forum.lock', $post) }}" method="POST">
+                                                    @csrf
+                                                    <button type="submit" class="text-gray-400 hover:text-yellow-600 transition" title="{{ $post->is_locked ? 'Unlock' : 'Lock' }}">
+                                                        <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="{{ $post->is_locked ? 'M8 11V7a4 4 0 118 0m-4 8v2m-6 4h12a2 2 0 002-2v-6a2 2 0 00-2-2H6a2 2 0 00-2 2v6a2 2 0 002 2z' : 'M12 15v2m-6 4h12a2 2 0 002-2v-6a2 2 0 00-2-2H6a2 2 0 00-2 2v6a2 2 0 002 2zm10-10V7a4 4 0 00-8 0v4h8z' }}" />
+                                                        </svg>
+                                                    </button>
+                                                </form>
+                                            @endif
+
+                                            {{-- Edit (Only Owner) --}}
+                                            @if($post->user_id === Auth::id())
+                                                <a href="{{ route('forum.edit', $post) }}" class="text-gray-400 hover:text-blue-600 transition">
+                                                    <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z" />
+                                                    </svg>
+                                                </a>
+                                            @endif
+
+                                            {{-- Delete (Owner or Admin) --}}
                                             <form action="{{ route('forum.destroy', $post) }}" method="POST" onsubmit="return confirm('Are you sure you want to delete this post?');">
                                                 @csrf
                                                 @method('DELETE')

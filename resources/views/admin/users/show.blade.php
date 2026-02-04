@@ -1,9 +1,5 @@
 <x-app-layout>
-    <x-slot name="header">
-        <h2 class="font-semibold text-xl text-gray-800 leading-tight">
-            {{ __('View User Details') }}
-        </h2>
-    </x-slot>
+
 
     <div class="py-12">
         <div class="max-w-7xl mx-auto sm:px-6 lg:px-8">
@@ -46,7 +42,8 @@
                         <div class="mb-4">
                             <x-input-label :value="__('Pack Price')" />
                             <div class="text-gray-700 mt-1">
-                                {{ $user->pack_price ? 'RM' . number_format($user->pack_price, 2) : 'Not set' }}</div>
+                                {{ $user->pack_price ? 'RM' . number_format($user->pack_price, 2) : 'Not set' }}
+                            </div>
                         </div>
                     </div>
 

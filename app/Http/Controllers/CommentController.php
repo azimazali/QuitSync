@@ -11,6 +11,10 @@ class CommentController extends Controller
 {
     public function store(Request $request, Post $post)
     {
+        if ($post->is_locked) {
+            return back()->with('error', 'This post is locked. Comments are disabled.');
+        }
+
         $request->validate([
             'body' => 'required|string|max:1000',
         ]);

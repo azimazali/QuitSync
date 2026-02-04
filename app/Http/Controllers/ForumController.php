@@ -16,9 +16,19 @@ class ForumController extends Controller
         $this->sentimentService = $sentimentService;
     }
 
-    public function index()
+    public function index(Request $request)
     {
-        $posts = Post::with('user')->withCount('comments')->latest()->simplePaginate(10);
+        $query = Post::with('user')->withCount('comments')->latest();
+
+        if ($request->has('tag')) {
+            $query->whereJsonContains('tags', $request->tag);
+        }
+
+        if ($request->has('category')) {
+            $query->where('category', $request->category);
+        }
+
+        $posts = $query->simplePaginate(10);
         return view('forum.index', compact('posts'));
     }
 
@@ -34,8 +44,10 @@ class ForumController extends Controller
             'body' => 'required|string|min:10',
         ]);
 
-        // Analyze Sentiment
+        // Analyze Sentiment & NLP
         $analysis = $this->sentimentService->analyze($request->body);
+        $tags = $this->sentimentService->analyzeEntities($request->body);
+        $category = $this->sentimentService->classifyContent($request->body);
 
         $post = Post::create([
             'user_id' => Auth::id(),
@@ -44,6 +56,8 @@ class ForumController extends Controller
             'sentiment_score' => $analysis['score'],
             'sentiment_magnitude' => $analysis['magnitude'],
             'risk_level' => $analysis['risk_level'],
+            'tags' => $tags,
+            'category' => $category,
         ]);
 
         if ($analysis['risk_level'] === 'high') {
@@ -85,6 +99,8 @@ class ForumController extends Controller
         // However, updating content might change risk level. Let's re-analyze to be safe.
 
         $analysis = $this->sentimentService->analyze($request->body);
+        $tags = $this->sentimentService->analyzeEntities($request->body);
+        $category = $this->sentimentService->classifyContent($request->body);
 
         $post->update([
             'title' => $request->title,
@@ -92,6 +108,8 @@ class ForumController extends Controller
             'sentiment_score' => $analysis['score'],
             'sentiment_magnitude' => $analysis['magnitude'],
             'risk_level' => $analysis['risk_level'],
+            'tags' => $tags,
+            'category' => $category,
         ]);
 
         if ($analysis['risk_level'] === 'high') {
@@ -105,12 +123,26 @@ class ForumController extends Controller
 
     public function destroy(Post $post)
     {
-        if ($post->user_id !== Auth::id()) {
+        // Allow deletion if user is owner OR user is admin
+        if ($post->user_id !== Auth::id() && !Auth::user()->is_admin) {
             abort(403);
         }
 
         $post->delete();
 
         return redirect()->route('forum.index')->with('status', 'Post deleted successfully!');
+    }
+
+    public function toggleLock(Post $post)
+    {
+        if (!Auth::user()->is_admin) {
+            abort(403);
+        }
+
+        $post->update(['is_locked' => !$post->is_locked]);
+
+        $status = $post->is_locked ? 'Post locked.' : 'Post unlocked.';
+
+        return back()->with('status', $status);
     }
 }

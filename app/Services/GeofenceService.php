@@ -109,7 +109,7 @@ class GeofenceService
         // Create new Auto Geofence
         $geofence = Geofence::create([
             'user_id' => $user->id,
-            'name' => 'High Risk Area [Auto]',
+            'name' => 'High Risk Area',
             'latitude' => $cluster['latitude'],
             'longitude' => $cluster['longitude'],
             'radius' => self::CLUSTER_RADIUS_METERS,

@@ -1,9 +1,5 @@
 <x-app-layout>
-    <x-slot name="header">
-        <h2 class="font-semibold text-xl text-gray-800 leading-tight">
-            {{ __('Admin Dashboard - User Management') }}
-        </h2>
-    </x-slot>
+
 
     <div class="py-12">
         <div class="max-w-7xl mx-auto sm:px-6 lg:px-8">
@@ -59,16 +55,21 @@
                                 @forelse ($users as $user)
                                     <tr>
                                         <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-500 text-center">
-                                            {{ $user->id }}</td>
+                                            {{ $user->id }}
+                                        </td>
                                         <td
                                             class="px-6 py-4 whitespace-nowrap text-sm font-medium text-gray-900 text-center">
-                                            {{ $user->name }}</td>
+                                            {{ $user->name }}
+                                        </td>
                                         <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-500 text-center">
-                                            {{ $user->email }}</td>
+                                            {{ $user->email }}
+                                        </td>
                                         <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-500 text-center">
-                                            {{ $user->is_admin ? 'Admin' : 'User'    }}</td>
+                                            {{ $user->is_admin ? 'Admin' : 'User'    }}
+                                        </td>
                                         <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-500 text-center">
-                                            {{ $user->created_at->format('M d, Y') }}</td>
+                                            {{ $user->created_at->format('M d, Y') }}
+                                        </td>
                                         <td class="px-6 py-4 whitespace-nowrap text-center text-sm font-medium">
                                             <a href="{{ route('admin.users.show', $user) }}"
                                                 class="text-blue-600 hover:text-blue-900 mr-3">View</a>

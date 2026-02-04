@@ -19,10 +19,15 @@ class DashboardController extends Controller
             ->where('type', 'smoked')
             ->exists();
 
-        // Calculate Penalty (Total Cost of Smoked Cigarettes)
-        $totalSmoked = SmokingLog::where('user_id', $user->id)->sum('quantity');
-        $costPerCig = ($user->pack_price ?? 10) / 20;
-        $totalPenalty = $totalSmoked * $costPerCig;
+        // Calculate Penalty (Total Cost of Smoked Cigarettes SINCE quit date)
+        $totalPenalty = 0;
+        if ($user->quit_date) {
+            $totalSmoked = SmokingLog::where('user_id', $user->id)
+                ->where('smoked_at', '>', $user->quit_date)
+                ->sum('quantity');
+            $costPerCig = ($user->pack_price ?? 10) / 20;
+            $totalPenalty = $totalSmoked * $costPerCig;
+        }
 
         // Calendar Logic
         $startOfMonth = Carbon::now()->startOfMonth();
@@ -65,7 +70,22 @@ class DashboardController extends Controller
             $currentDate->addDay();
         }
 
-        return view('dashboard', compact('smokedToday', 'totalPenalty', 'calendar'));
+        // Top Topics Analysis (NLP Tags)
+        $posts = \App\Models\Post::where('user_id', $user->id)->whereNotNull('tags')->get();
+        $tagCounts = [];
+        foreach ($posts as $post) {
+            if ($post->tags) {
+                foreach ($post->tags as $tag) {
+                    if (!isset($tagCounts[$tag]))
+                        $tagCounts[$tag] = 0;
+                    $tagCounts[$tag]++;
+                }
+            }
+        }
+        arsort($tagCounts);
+        $topTopics = array_slice($tagCounts, 0, 5, true);
+
+        return view('dashboard', compact('smokedToday', 'totalPenalty', 'calendar', 'topTopics'));
     }
 }
 
