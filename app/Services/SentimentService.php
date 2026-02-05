@@ -69,7 +69,7 @@ class SentimentService
 
             $score = $sentiment->getScore();
             $magnitude = $sentiment->getMagnitude();
-            $risk = $this->calculateRisk($score);
+            $risk = $this->calculateRisk($score, $magnitude);
 
             return [
                 'score' => $score,
@@ -87,16 +87,25 @@ class SentimentService
         }
     }
 
-    protected function calculateRisk(float $score): string
+    protected function calculateRisk(float $score, float $magnitude = 0.0): string
     {
-        // Score ranges from -1.0 (negative) to 1.0 (positive)
-        if ($score < -0.6) {
+        // High Risk: Strong negative sentiment
+        if ($score < -0.5) {
             return 'high';
-        } elseif ($score < -0.25) {
-            return 'moderate';
-        } else {
-            return 'low';
         }
+
+        // Moderate Risk:
+        // 1. Mildly negative (-0.5 to -0.1)
+        // 2. Mixed/Volatile (Low score + High Magnitude) -> e.g. "I want to quit but it's hard"
+        if ($score < -0.1) {
+            return 'moderate';
+        }
+
+        if ($score < 0.2 && $magnitude > 1.2) {
+            return 'moderate';
+        }
+
+        return 'low';
     }
 
     public function analyzeEntities(string $text): array
