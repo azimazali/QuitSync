@@ -1,0 +1,29 @@
+{
+  "project_info": {
+    "project_number": "251580804646",
+    "project_id": "quitsync-58d19",
+    "storage_bucket": "quitsync-58d19.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:251580804646:android:488793231ab00a1387c0e7",
+        "android_client_info": {
+          "package_name": "com.example.quitsync"
+        }
+      },
+      "oauth_client": [],
+      "api_key": [
+        {
+          "current_key": "AIzaSyCx2pgImVHtxriiUIKUshenflVIODRj6ic"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": []
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}
