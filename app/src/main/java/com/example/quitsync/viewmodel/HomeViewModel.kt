@@ -1,18 +1,21 @@
 package com.example.quitsync.viewmodel
 
+import android.util.Log
 import androidx.compose.runtime.State
 import androidx.compose.runtime.mutableStateOf
 import androidx.lifecycle.ViewModel
 import com.example.quitsync.model.JournalEntry
+import com.example.quitsync.model.User
 import com.google.firebase.auth.FirebaseAuth
 import com.google.firebase.firestore.FirebaseFirestore
+import com.google.firebase.firestore.ListenerRegistration
 import com.google.firebase.firestore.Query
 import java.util.*
 import java.util.concurrent.TimeUnit
 
 data class DayStatus(
     val dayOfMonth: Int,
-    val status: Status // Green, Red, or Neutral (no entry)
+    val status: Status
 )
 
 enum class Status {
@@ -23,8 +26,14 @@ class HomeViewModel : ViewModel() {
     private val db = FirebaseFirestore.getInstance()
     private val auth = FirebaseAuth.getInstance()
 
+    private var userListener: ListenerRegistration? = null
+    private var journalListener: ListenerRegistration? = null
+
     private val _streakDays = mutableStateOf<Long>(0)
     val streakDays: State<Long> = _streakDays
+
+    private val _moneySaved = mutableStateOf<Double>(0.0)
+    val moneySaved: State<Double> = _moneySaved
 
     private val _monthlyStatus = mutableStateOf<List<DayStatus>>(emptyList())
     val monthlyStatus: State<List<DayStatus>> = _monthlyStatus
@@ -35,62 +44,99 @@ class HomeViewModel : ViewModel() {
     init {
         val calendar = Calendar.getInstance()
         _currentMonthName.value = calendar.getDisplayName(Calendar.MONTH, Calendar.LONG, Locale.getDefault()) ?: ""
-        fetchStreak()
-        fetchMonthlyStatus()
+        startRealTimeUpdates()
     }
 
-    private fun fetchStreak() {
+    private fun startRealTimeUpdates() {
         val userId = auth.currentUser?.uid ?: return
-        db.collection("users").document(userId).get()
-            .addOnSuccessListener { document ->
-                val quitDate = document.getTimestamp("quitDate")?.toDate()
+
+        userListener?.remove()
+        userListener = db.collection("users").document(userId)
+            .addSnapshotListener { document, error ->
+                if (error != null || document == null || !document.exists()) return@addSnapshotListener
+
+                val user = document.toObject(User::class.java)
+                val quitDate = user?.quitDate
+                val pricePerPack = user?.cigarettePrice ?: 0.0
+                val dailyCount = user?.dailyCigarettes ?: 20
+                val sticksPerPack = user?.cigarettesPerPack ?: 20
+
                 if (quitDate != null) {
-                    val diff = Date().time - quitDate.time
-                    _streakDays.value = maxOf(0, TimeUnit.MILLISECONDS.toDays(diff))
+                    calculateProgress(quitDate, pricePerPack, dailyCount, sticksPerPack)
                 }
             }
-    }
 
-    private fun fetchMonthlyStatus() {
-        val userId = auth.currentUser?.uid ?: return
-        val calendar = Calendar.getInstance()
-        calendar.set(Calendar.DAY_OF_MONTH, 1)
-        calendar.set(Calendar.HOUR_OF_DAY, 0)
-        calendar.set(Calendar.MINUTE, 0)
-        calendar.set(Calendar.SECOND, 0)
-        val startOfMonth = calendar.time
+        val startOfMonth = Calendar.getInstance().apply {
+            set(Calendar.DAY_OF_MONTH, 1)
+            set(Calendar.HOUR_OF_DAY, 0)
+            set(Calendar.MINUTE, 0)
+            set(Calendar.SECOND, 0)
+        }.time
 
-        db.collection("journals")
+        journalListener?.remove()
+        journalListener = db.collection("journals")
             .whereEqualTo("userId", userId)
             .whereGreaterThanOrEqualTo("timestamp", startOfMonth)
-            .orderBy("timestamp", Query.Direction.ASCENDING)
-            .get()
-            .addOnSuccessListener { documents ->
-                val entries = documents.toObjects(JournalEntry::class.java)
-                val statusMap = mutableMapOf<Int, Status>()
-
-                // Default all days to NO_DATA
-                val maxDay = Calendar.getInstance().getActualMaximum(Calendar.DAY_OF_MONTH)
-                for (i in 1..maxDay) {
-                    statusMap[i] = Status.NO_DATA
+            .addSnapshotListener { snapshot, _ ->
+                if (snapshot != null) {
+                    updateMonthlyStatus(snapshot.toObjects(JournalEntry::class.java))
                 }
-
-                for (entry in entries) {
-                    val entryDate = entry.timestamp ?: continue
-                    val cal = Calendar.getInstance()
-                    cal.time = entryDate
-                    val day = cal.get(Calendar.DAY_OF_MONTH)
-
-                    // If multiple entries for a day, if any entry says SMOKED, the day is SMOKED
-                    val currentStatus = statusMap[day]
-                    if (entry.didSmoke) {
-                        statusMap[day] = Status.SMOKED
-                    } else if (currentStatus != Status.SMOKED) {
-                        statusMap[day] = Status.SMOKE_FREE
-                    }
-                }
-
-                _monthlyStatus.value = statusMap.map { DayStatus(it.key, it.value) }.sortedBy { it.dayOfMonth }
             }
+    }
+
+    private fun calculateProgress(quitDate: Date, price: Double, dailyCigarettes: Int, sticksPerPack: Int) {
+        val now = Date()
+
+        // 1. Calculate Streak (Difference in calendar days)
+        val calNow = Calendar.getInstance()
+        val calQuit = Calendar.getInstance().apply { time = quitDate }
+
+        // Reset both to midnight for accurate calendar day counting
+        calNow.set(Calendar.HOUR_OF_DAY, 0)
+        calNow.set(Calendar.MINUTE, 0)
+        calNow.set(Calendar.SECOND, 0)
+        calNow.set(Calendar.MILLISECOND, 0)
+
+        calQuit.set(Calendar.HOUR_OF_DAY, 0)
+        calQuit.set(Calendar.MINUTE, 0)
+        calQuit.set(Calendar.SECOND, 0)
+        calQuit.set(Calendar.MILLISECOND, 0)
+
+        val diffMillis = calNow.timeInMillis - calQuit.timeInMillis
+        val days = TimeUnit.MILLISECONDS.toDays(diffMillis)
+        _streakDays.value = if (days < 0) 0 else days
+
+        // 2. Calculate Money Saved (RM)
+        // Formula: Savings = (Total seconds since quit / seconds in day) * daily cost
+        val actualDiffMillis = now.time - quitDate.time
+        val secondsSinceQuit = actualDiffMillis / 1000.0
+        val secondsInDay = 86400.0
+
+        val costPerStick = if (sticksPerPack > 0) price / sticksPerPack else 0.0
+        val dailyCost = dailyCigarettes * costPerStick
+
+        val totalSaved = (secondsSinceQuit / secondsInDay) * dailyCost
+        _moneySaved.value = if (totalSaved < 0) 0.0 else totalSaved
+
+        Log.d("HomeViewModel", "Calculation: Streak $days days, Saved RM $totalSaved")
+    }
+
+    private fun updateMonthlyStatus(entries: List<JournalEntry>) {
+        val statusMap = mutableMapOf<Int, Status>()
+        val maxDay = Calendar.getInstance().getActualMaximum(Calendar.DAY_OF_MONTH)
+        for (i in 1..maxDay) statusMap[i] = Status.NO_DATA
+
+        for (entry in entries) {
+            val day = Calendar.getInstance().apply { time = entry.timestamp ?: Date() }.get(Calendar.DAY_OF_MONTH)
+            if (entry.didSmoke) statusMap[day] = Status.SMOKED
+            else if (statusMap[day] != Status.SMOKED) statusMap[day] = Status.SMOKE_FREE
+        }
+        _monthlyStatus.value = statusMap.map { DayStatus(it.key, it.value) }.sortedBy { it.dayOfMonth }
+    }
+
+    override fun onCleared() {
+        super.onCleared()
+        userListener?.remove()
+        journalListener?.remove()
     }
 }

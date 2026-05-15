@@ -11,6 +11,8 @@ import androidx.core.app.NotificationCompat
 import androidx.core.app.NotificationManagerCompat
 import com.google.android.gms.location.Geofence
 import com.google.android.gms.location.GeofencingEvent
+import com.google.firebase.auth.FirebaseAuth
+import com.google.firebase.firestore.FirebaseFirestore
 
 class GeofenceBroadcastReceiver : BroadcastReceiver() {
     override fun onReceive(context: Context, intent: Intent) {
@@ -21,14 +23,31 @@ class GeofenceBroadcastReceiver : BroadcastReceiver() {
             return
         }
 
-        val geofenceTransition = geofencingEvent.geofenceTransition
+        val geofenceTransition = geofenceTransition(geofencingEvent)
 
         if (geofenceTransition == Geofence.GEOFENCE_TRANSITION_ENTER) {
             val triggeringGeofences = geofencingEvent.triggeringGeofences
-            triggeringGeofences?.forEach { geofence ->
-                sendNotification(context, "You've entered a trigger zone: ${geofence.requestId}")
-            }
+            val userId = FirebaseAuth.getInstance().currentUser?.uid ?: return
+            
+            FirebaseFirestore.getInstance().collection("users").document(userId).get()
+                .addOnSuccessListener { document ->
+                    val category = document.getString("nicotineDependenceCategory") ?: ""
+                    val isHighRisk = category.equals("High Dependence", ignoreCase = true)
+                    
+                    triggeringGeofences?.forEach { geofence ->
+                        val message = if (isHighRisk) {
+                            "High Risk Area: Stay strong!"
+                        } else {
+                            "You've entered a trigger zone: ${geofence.requestId}"
+                        }
+                        sendNotification(context, message)
+                    }
+                }
         }
+    }
+
+    private fun geofenceTransition(event: GeofencingEvent): Int {
+        return event.geofenceTransition
     }
 
     private fun sendNotification(context: Context, message: String) {

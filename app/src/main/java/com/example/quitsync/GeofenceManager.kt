@@ -24,13 +24,15 @@ class GeofenceManager(private val context: Context) {
     }
 
     @SuppressLint("MissingPermission")
-    fun addGeofence(triggerZone: TriggerZone) {
+    fun addGeofence(triggerZone: TriggerZone, desirePercentage: Int = 0) {
+        val adjustedRadius = triggerZone.radius * (1.0f + (desirePercentage / 100.0f))
+        
         val geofence = Geofence.Builder()
             .setRequestId(triggerZone.name)
             .setCircularRegion(
                 triggerZone.latitude,
                 triggerZone.longitude,
-                triggerZone.radius
+                adjustedRadius
             )
             .setExpirationDuration(Geofence.NEVER_EXPIRE)
             .setTransitionTypes(Geofence.GEOFENCE_TRANSITION_ENTER)

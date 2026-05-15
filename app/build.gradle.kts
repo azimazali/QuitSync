@@ -50,6 +50,7 @@ android {
             excludes += "google/protobuf/*.proto"
             excludes += "google/type/*.proto"
             excludes += "google/rpc/*.proto"
+            excludes += "google/rpc/context/*.proto"
             excludes += "google/api/*.proto"
             excludes += "google/cloud/audit/*.proto"
             excludes += "google/logging/type/*.proto"
@@ -60,12 +61,8 @@ android {
     }
 }
 
-// Explicitly configure the Secrets Gradle Plugin
 secrets {
-    // Specify the file containing the API key
     propertiesFileName = "local.properties"
-
-    // Set to true to inject keys into the manifest
     defaultPropertiesFileName = "local.defaults.properties"
 }
 
@@ -76,8 +73,10 @@ kotlin {
 }
 
 configurations.all {
-    exclude(group = "com.google.firebase", module = "protolite-well-known-types")
-    exclude(group = "com.google.protobuf", module = "protobuf-javalite")
+    resolutionStrategy {
+        // Force Guava version to avoid conflicts
+        force("com.google.guava:guava:33.3.1-android")
+    }
 }
 
 dependencies {
@@ -89,6 +88,8 @@ dependencies {
     implementation(libs.androidx.compose.ui)
     implementation(libs.androidx.compose.ui.graphics)
     implementation(libs.androidx.compose.ui.tooling.preview)
+    implementation(libs.androidx.compose.foundation)
+    implementation(libs.androidx.compose.foundation.layout)
     implementation(libs.androidx.compose.material)
     implementation(libs.androidx.compose.material3)
     implementation(libs.androidx.compose.material.icons.core)
@@ -100,14 +101,12 @@ dependencies {
     implementation(libs.maps.compose)
     implementation(libs.play.services.location)
 
-    implementation(libs.google.cloud.language) {
-        exclude(group = "org.apache.httpcomponents", module = "httpclient")
-    }
+    // Using OkHttp and REST API for Sentiment Analysis to avoid Protobuf conflicts with Firestore
+    implementation("com.squareup.okhttp3:okhttp:4.12.0")
+    implementation("com.google.auth:google-auth-library-oauth2-http:1.23.0")
 
-    implementation(libs.protobuf.java)
-    implementation("com.google.api.grpc:proto-google-common-protos:2.39.0")
-
-    implementation(platform("com.google.firebase:firebase-bom:34.10.0"))
+    // Firebase - Update to latest stable BOM
+    implementation(platform("com.google.firebase:firebase-bom:34.12.0"))
     implementation("com.google.firebase:firebase-auth")
     implementation("com.google.firebase:firebase-firestore")
 
@@ -118,14 +117,4 @@ dependencies {
     androidTestImplementation(libs.androidx.compose.ui.test.junit4)
     debugImplementation(libs.androidx.compose.ui.tooling)
     debugImplementation(libs.androidx.compose.ui.test.manifest)
-}
-
-configurations.all {
-    resolutionStrategy.eachDependency {
-        if (requested.group == "com.google.protobuf" && requested.name.contains("protobuf")) {
-            if (!requested.name.contains("javalite")) {
-                useVersion("3.25.5")
-            }
-        }
-    }
 }

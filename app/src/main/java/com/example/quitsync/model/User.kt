@@ -6,5 +6,13 @@ import java.util.Date
 data class User(
     val uid: String = "",
     val email: String = "",
-    @ServerTimestamp val quitDate: Date? = null
+    val role: String = "user",
+    val cigarettePrice: Double = 0.0, // Price per pack (e.g., RM 17.50)
+    val dailyCigarettes: Int = 20,    // Average smoked per day
+    val cigarettesPerPack: Int = 20,  // Number of sticks in a pack
+    @ServerTimestamp val quitDate: Date? = null,
+    val nicotineDependenceScore: Int = 0,
+    val nicotineDependenceCategory: String = "",
+    val goals: List<String> = emptyList(),
+    val desirePercentage: Int = 0
 )
