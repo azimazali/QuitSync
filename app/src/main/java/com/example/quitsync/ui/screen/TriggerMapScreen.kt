@@ -22,6 +22,7 @@ import androidx.compose.ui.unit.dp
 import androidx.core.content.ContextCompat
 import androidx.lifecycle.viewmodel.compose.viewModel
 import com.example.quitsync.model.TriggerZone
+import com.example.quitsync.util.RiskUtils
 import com.example.quitsync.viewmodel.TriggerUiState
 import com.example.quitsync.viewmodel.TriggerViewModel
 import com.google.android.gms.maps.model.BitmapDescriptorFactory
@@ -123,15 +124,16 @@ fun TriggerMapScreen(viewModel: TriggerViewModel = viewModel()) {
                     // Show saved zones as blue/red circles/markers (exclude the one being edited to avoid confusion)
                     triggerZones.forEach { zone ->
                         if (zone.id != zoneToEdit?.id) {
-                            val isHighRisk = viewModel.userCategory.value.equals("High Dependence", ignoreCase = true)
-                            val zoneColor = if (isHighRisk) Color.Red else Color.Blue
+                            val zoneColor = RiskUtils.getCategoryColor(zone.category)
                             val adjustedRadius = zone.radius * (1.0f + (viewModel.desirePercentage.value / 100.0f))
 
                             Marker(
                                 state = MarkerState(position = LatLng(zone.latitude, zone.longitude)),
                                 title = zone.name,
                                 icon = BitmapDescriptorFactory.defaultMarker(
-                                    if (isHighRisk) BitmapDescriptorFactory.HUE_RED else BitmapDescriptorFactory.HUE_AZURE
+                                    if (zone.category == "Red") BitmapDescriptorFactory.HUE_RED 
+                                    else if (zone.category == "Orange") BitmapDescriptorFactory.HUE_ORANGE
+                                    else BitmapDescriptorFactory.HUE_AZURE
                                 )
                             )
                             Circle(

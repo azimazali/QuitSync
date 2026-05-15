@@ -9,8 +9,13 @@ import android.os.Build
 import android.util.Log
 import androidx.core.app.NotificationCompat
 import androidx.core.app.NotificationManagerCompat
+import com.example.quitsync.util.RiskUtils
 import com.google.android.gms.location.Geofence
 import com.google.android.gms.location.GeofencingEvent
+import com.google.android.libraries.places.api.Places
+import com.google.android.libraries.places.api.model.Place
+import com.google.android.libraries.places.api.net.FetchPlaceRequest
+import com.google.android.libraries.places.api.net.FindCurrentPlaceRequest
 import com.google.firebase.auth.FirebaseAuth
 import com.google.firebase.firestore.FirebaseFirestore
 
@@ -26,23 +31,93 @@ class GeofenceBroadcastReceiver : BroadcastReceiver() {
         val geofenceTransition = geofenceTransition(geofencingEvent)
 
         if (geofenceTransition == Geofence.GEOFENCE_TRANSITION_ENTER) {
-            val triggeringGeofences = geofencingEvent.triggeringGeofences
-            val userId = FirebaseAuth.getInstance().currentUser?.uid ?: return
-            
-            FirebaseFirestore.getInstance().collection("users").document(userId).get()
-                .addOnSuccessListener { document ->
-                    val category = document.getString("nicotineDependenceCategory") ?: ""
-                    val isHighRisk = category.equals("High Dependence", ignoreCase = true)
-                    
-                    triggeringGeofences?.forEach { geofence ->
-                        val message = if (isHighRisk) {
-                            "High Risk Area: Stay strong!"
-                        } else {
-                            "You've entered a trigger zone: ${geofence.requestId}"
+            val pendingResult = goAsync()
+            val userId = FirebaseAuth.getInstance().currentUser?.uid ?: run {
+                pendingResult.finish()
+                return
+            }
+
+            // Detect social risk using the new Places API logic
+            detectSocialRisk(context) { category, score ->
+                // Database Integration: Save the last_visited_risk_level to the user's document
+                FirebaseFirestore.getInstance().collection("users").document(userId)
+                    .update("last_visited_risk_level", category)
+                    .addOnCompleteListener {
+                        // Risk Assignment & Notification
+                        val message = when (category) {
+                            "Red" -> "High-risk social area detected! Take a deep breath."
+                            "Orange" -> "Warning: Increased risk in this area."
+                            else -> "You've entered a trigger zone."
                         }
                         sendNotification(context, message)
+                        pendingResult.finish()
                     }
+            }
+        }
+    }
+
+    private fun detectSocialRisk(context: Context, callback: (String, Int) -> Unit) {
+        if (!Places.isInitialized()) {
+            callback("Blue", 0)
+            return
+        }
+
+        val placesClient = Places.createClient(context)
+
+        // First, find the most likely current place ID
+        val findRequest = FindCurrentPlaceRequest.newInstance(listOf(Place.Field.ID))
+
+        try {
+            placesClient.findCurrentPlace(findRequest).addOnSuccessListener { response ->
+                val placeId = response.placeLikelihoods.firstOrNull()?.place?.id
+
+                if (placeId != null) {
+                    // Use fetchPlace() to retrieve displayName, types, and outdoorSeating as requested
+                    val fetchRequest = FetchPlaceRequest.newInstance(placeId, listOf(
+                        Place.Field.DISPLAY_NAME,
+                        Place.Field.TYPES,
+                        Place.Field.OUTDOOR_SEATING
+                    ))
+
+                    placesClient.fetchPlace(fetchRequest).addOnSuccessListener { fetchResponse ->
+                        val place = fetchResponse.place
+                        val displayName = place.displayName?.lowercase() ?: ""
+                        val types = place.types ?: emptyList()
+                        val hasOutdoor = place.outdoorSeating == Place.BooleanPlaceAttributeValue.TRUE
+
+                        var locationRiskScore = 0
+                        var category = "Blue"
+
+                        // Mamak Detection: displayName contains 'mamak' OR 'nasi kandar' AND outdoorSeating is true
+                        if ((displayName.contains("mamak") || displayName.contains("nasi kandar")) && hasOutdoor) {
+                            locationRiskScore = 8
+                        }
+
+                        // Risk Assignment
+                        if (locationRiskScore >= 7) {
+                            category = "Red"
+                        } else if (types.contains(Place.Type.CAFE) && !hasOutdoor) {
+                            // If place type is 'CAFE' without outdoor seating: Set category to Orange
+                            category = "Orange"
+                        } else if (types.contains(Place.Type.BAR) || types.contains(Place.Type.NIGHT_CLUB)) {
+                            category = "Red"
+                        }
+
+                        callback(category, locationRiskScore)
+                    }.addOnFailureListener { e ->
+                        Log.e("GeofenceReceiver", "FetchPlace failure: ${e.message}")
+                        callback("Blue", 0)
+                    }
+                } else {
+                    callback("Blue", 0)
                 }
+            }.addOnFailureListener { e ->
+                Log.e("GeofenceReceiver", "FindCurrentPlace failure: ${e.message}")
+                callback("Blue", 0)
+            }
+        } catch (e: SecurityException) {
+            Log.e("GeofenceReceiver", "Location permission missing")
+            callback("Blue", 0)
         }
     }
 

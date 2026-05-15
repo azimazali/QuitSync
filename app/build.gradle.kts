@@ -100,6 +100,7 @@ dependencies {
     implementation(libs.play.services.maps)
     implementation(libs.maps.compose)
     implementation(libs.play.services.location)
+    implementation(libs.play.services.places)
 
     // Using OkHttp and REST API for Sentiment Analysis to avoid Protobuf conflicts with Firestore
     implementation("com.squareup.okhttp3:okhttp:4.12.0")

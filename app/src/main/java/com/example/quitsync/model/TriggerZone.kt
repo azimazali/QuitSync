@@ -8,5 +8,6 @@ data class TriggerZone(
     val name: String = "",
     val latitude: Double = 0.0,
     val longitude: Double = 0.0,
-    val radius: Float = 100f // Default 100 meters
+    val radius: Float = 100f, // Default 100 meters
+    val category: String = "Blue" // Default category
 )

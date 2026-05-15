@@ -25,6 +25,9 @@ class AuthViewModel : ViewModel() {
     private val _currentUserData = mutableStateOf<User?>(null)
     val currentUserData: State<User?> = _currentUserData
 
+    private val _isUserDataLoading = mutableStateOf(auth.currentUser != null)
+    val isUserDataLoading: State<Boolean> = _isUserDataLoading
+
     init {
         if (auth.currentUser != null) {
             fetchCurrentUserData()
@@ -34,12 +37,14 @@ class AuthViewModel : ViewModel() {
     private fun fetchCurrentUserData() {
         val uid = auth.currentUser?.uid ?: return
         Log.d("AuthViewModel", "Starting listener for UID: $uid")
+        _isUserDataLoading.value = true
 
         userListener?.remove()
 
         userListener = db.collection("users").document(uid).addSnapshotListener { document, error ->
             if (error != null) {
                 Log.e("AuthViewModel", "Listen failed: ${error.message}")
+                _isUserDataLoading.value = false
                 return@addSnapshotListener
             }
 
@@ -54,6 +59,7 @@ class AuthViewModel : ViewModel() {
                 Log.w("AuthViewModel", "User document does not exist in Firestore for UID: $uid")
                 _currentUserRole.value = "user"
             }
+            _isUserDataLoading.value = false
         }
     }
 
@@ -168,6 +174,20 @@ class AuthViewModel : ViewModel() {
             .addOnFailureListener { onResult(false, it.localizedMessage) }
     }
 
+    fun completeOnboarding(onResult: (Boolean, String?) -> Unit) {
+        val uid = auth.currentUser?.uid ?: run {
+            onResult(false, "User not authenticated")
+            return
+        }
+        val updates = mapOf(
+            "hasCompletedSetup" to true
+        )
+
+        db.collection("users").document(uid).set(updates, SetOptions.merge())
+            .addOnSuccessListener { onResult(true, "Onboarding completed") }
+            .addOnFailureListener { onResult(false, it.localizedMessage) }
+    }
+
     fun changePassword(newPassword: String, onResult: (Boolean, String?) -> Unit) {
         auth.currentUser?.updatePassword(newPassword)
             ?.addOnCompleteListener { task ->
@@ -185,6 +205,33 @@ class AuthViewModel : ViewModel() {
         _isUserLoggedIn.value = false
         _currentUserData.value = null
         _currentUserRole.value = "user"
+    }
+
+    fun deleteAccount(onResult: (Boolean, String?) -> Unit) {
+        val user = auth.currentUser ?: run {
+            onResult(false, "No user logged in")
+            return
+        }
+        val uid = user.uid
+
+        // 1. Delete Firestore data first
+        db.collection("users").document(uid).delete()
+            .addOnSuccessListener {
+                // 2. Delete Auth account
+                user.delete()
+                    .addOnCompleteListener { task ->
+                        if (task.isSuccessful) {
+                            _isUserLoggedIn.value = false
+                            _currentUserData.value = null
+                            onResult(true, null)
+                        } else {
+                            onResult(false, task.exception?.message ?: "Failed to delete account from Auth. You might need to re-authenticate.")
+                        }
+                    }
+            }
+            .addOnFailureListener { e ->
+                onResult(false, "Failed to delete profile data: ${e.message}")
+            }
     }
 
     override fun onCleared() {

@@ -25,13 +25,22 @@ import com.example.quitsync.navigation.NavGraph
 import com.example.quitsync.navigation.Screen
 import com.example.quitsync.ui.theme.QuitSyncTheme
 import com.example.quitsync.viewmodel.AuthViewModel
+import com.google.android.libraries.places.api.Places
 import com.google.firebase.FirebaseApp
+import android.content.pm.PackageManager
 
 class MainActivity : ComponentActivity() {
     @OptIn(ExperimentalMaterial3Api::class)
     override fun onCreate(savedInstanceState: Bundle?) {
         // Initialize Firebase at the very beginning
         FirebaseApp.initializeApp(this)
+
+        // Initialize Places API
+        if (!Places.isInitialized()) {
+            val apiKey = packageManager.getApplicationInfo(packageName, PackageManager.GET_META_DATA)
+                .metaData.getString("com.google.android.geo.API_KEY") ?: ""
+            Places.initialize(applicationContext, apiKey)
+        }
 
         super.onCreate(savedInstanceState)
         enableEdgeToEdge()

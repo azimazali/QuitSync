@@ -15,6 +15,7 @@ fun SignUpScreen(viewModel: AuthViewModel = viewModel(), onSignUpSuccess: () -> 
     var email by remember { mutableStateOf("")}
     var password by remember { mutableStateOf("")}
     var errorMessage by remember { mutableStateOf<String?>(null)}
+    var isLoading by remember { mutableStateOf(false)}
 
     Column(
         modifier = Modifier.fillMaxSize().padding(16.dp),
@@ -50,13 +51,28 @@ fun SignUpScreen(viewModel: AuthViewModel = viewModel(), onSignUpSuccess: () -> 
 
         Button(
             onClick = {
+                isLoading = true
                 viewModel.signUp(email, password) { success, error ->
-                    if (success) onSignUpSuccess() else errorMessage = error
+                    if (success) {
+                        onSignUpSuccess()
+                    } else {
+                        isLoading = false
+                        errorMessage = error
+                    }
                 }
             },
-            modifier = Modifier.fillMaxWidth()
+            modifier = Modifier.fillMaxWidth(),
+            enabled = !isLoading
         ) {
-            Text("Sign Up")
+            if (isLoading) {
+                CircularProgressIndicator(
+                    modifier = Modifier.size(24.dp),
+                    color = MaterialTheme.colorScheme.onPrimary,
+                    strokeWidth = 2.dp
+                )
+            } else {
+                Text("Sign Up")
+            }
         }
     }
 }

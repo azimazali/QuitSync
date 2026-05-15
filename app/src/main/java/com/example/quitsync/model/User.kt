@@ -14,5 +14,6 @@ data class User(
     val nicotineDependenceScore: Int = 0,
     val nicotineDependenceCategory: String = "",
     val goals: List<String> = emptyList(),
-    val desirePercentage: Int = 0
+    val desirePercentage: Int = 0,
+    val hasCompletedSetup: Boolean = false
 )

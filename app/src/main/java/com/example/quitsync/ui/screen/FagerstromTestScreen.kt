@@ -3,19 +3,18 @@ package com.example.quitsync.ui.screen
 import android.widget.Toast
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.rememberScrollState
-import androidx.compose.foundation.selection.selectable
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
-import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
-import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.viewmodel.compose.viewModel
+import com.example.quitsync.ui.components.FagerstromTestContent
+import com.example.quitsync.ui.components.calculateFagerstromResults
 import com.example.quitsync.viewmodel.AuthViewModel
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -35,18 +34,9 @@ fun FagerstromTestScreen(
     var isSaving by remember { mutableStateOf(false) }
     var message by remember { mutableStateOf<String?>(null) }
 
-    val totalScore = listOf(q1Score, q2Score, q3Score, q4Score, q5Score, q6Score)
-        .filter { it != -1 }
-        .sum()
-
-    val dependenceCategory = when (totalScore) {
-        in 0..2 -> "Very Low Dependence"
-        in 3..4 -> "Low Dependence"
-        5 -> "Medium Dependence"
-        in 6..7 -> "High Dependence"
-        in 8..10 -> "Very High Dependence"
-        else -> ""
-    }
+    val (totalScore, dependenceCategory) = calculateFagerstromResults(
+        listOf(q1Score, q2Score, q3Score, q4Score, q5Score, q6Score)
+    )
 
     Scaffold(
         topBar = {
@@ -74,74 +64,13 @@ fun FagerstromTestScreen(
                 fontWeight = FontWeight.Bold
             )
 
-            // Question 1
-            FagerstromQuestion(
-                question = "1. How soon after you wake up do you smoke your first cigarette?",
-                options = listOf(
-                    "Within 5 minutes" to 3,
-                    "6-30 minutes" to 2,
-                    "31-60 minutes" to 1,
-                    "After 60 minutes" to 0
-                ),
-                selectedScore = q1Score,
-                onScoreSelected = { q1Score = it }
-            )
-
-            // Question 2
-            FagerstromQuestion(
-                question = "2. Do you find it difficult to refrain from smoking in places where it is forbidden (e.g., in church, at the library, in cinema, etc.)?",
-                options = listOf(
-                    "Yes" to 1,
-                    "No" to 0
-                ),
-                selectedScore = q2Score,
-                onScoreSelected = { q2Score = it }
-            )
-
-            // Question 3
-            FagerstromQuestion(
-                question = "3. Which cigarette would you hate most to give up?",
-                options = listOf(
-                    "The first one in the morning" to 1,
-                    "Any other" to 0
-                ),
-                selectedScore = q3Score,
-                onScoreSelected = { q3Score = it }
-            )
-
-            // Question 4
-            FagerstromQuestion(
-                question = "4. How many cigarettes per day do you smoke?",
-                options = listOf(
-                    "10 or less" to 0,
-                    "11-20" to 1,
-                    "21-30" to 2,
-                    "31 or more" to 3
-                ),
-                selectedScore = q4Score,
-                onScoreSelected = { q4Score = it }
-            )
-
-            // Question 5
-            FagerstromQuestion(
-                question = "5. Do you smoke more frequently during the first hours after waking than during the rest of the day?",
-                options = listOf(
-                    "Yes" to 1,
-                    "No" to 0
-                ),
-                selectedScore = q5Score,
-                onScoreSelected = { q5Score = it }
-            )
-
-            // Question 6
-            FagerstromQuestion(
-                question = "6. Do you smoke if you are so ill that you are in bed most of the day?",
-                options = listOf(
-                    "Yes" to 1,
-                    "No" to 0
-                ),
-                selectedScore = q6Score,
-                onScoreSelected = { q6Score = it }
+            FagerstromTestContent(
+                q1Score = q1Score, onQ1Selected = { q1Score = it },
+                q2Score = q2Score, onQ2Selected = { q2Score = it },
+                q3Score = q3Score, onQ3Selected = { q3Score = it },
+                q4Score = q4Score, onQ4Selected = { q4Score = it },
+                q5Score = q5Score, onQ5Selected = { q5Score = it },
+                q6Score = q6Score, onQ6Selected = { q6Score = it }
             )
 
             HorizontalDivider()
@@ -152,7 +81,7 @@ fun FagerstromTestScreen(
             ) {
                 Column(modifier = Modifier.padding(16.dp)) {
                     Text("Your Score: $totalScore", style = MaterialTheme.typography.titleMedium)
-                    if (totalScore >= 0 && q1Score != -1 && q2Score != -1 && q3Score != -1 && q4Score != -1 && q5Score != -1 && q6Score != -1) {
+                    if (q1Score != -1 && q2Score != -1 && q3Score != -1 && q4Score != -1 && q5Score != -1 && q6Score != -1) {
                         Text("Category: $dependenceCategory", style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold)
                     }
                 }
@@ -182,42 +111,6 @@ fun FagerstromTestScreen(
 
             message?.let {
                 Text(it, color = if (it.contains("success", true)) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.error)
-            }
-        }
-    }
-}
-
-@Composable
-fun FagerstromQuestion(
-    question: String,
-    options: List<Pair<String, Int>>,
-    selectedScore: Int,
-    onScoreSelected: (Int) -> Unit
-) {
-    Column {
-        Text(text = question, style = MaterialTheme.typography.bodyLarge, fontWeight = FontWeight.Medium)
-        Spacer(modifier = Modifier.height(8.dp))
-        options.forEach { (text, score) ->
-            Row(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .selectable(
-                        selected = (selectedScore == score),
-                        onClick = { onScoreSelected(score) },
-                        role = Role.RadioButton
-                    )
-                    .padding(vertical = 4.dp),
-                verticalAlignment = Alignment.CenterVertically
-            ) {
-                RadioButton(
-                    selected = (selectedScore == score),
-                    onClick = null // Selected by Row onClick
-                )
-                Text(
-                    text = text,
-                    style = MaterialTheme.typography.bodyMedium,
-                    modifier = Modifier.padding(start = 16.dp)
-                )
             }
         }
     }
