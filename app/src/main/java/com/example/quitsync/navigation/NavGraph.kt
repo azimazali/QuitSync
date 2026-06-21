@@ -61,7 +61,6 @@ fun NavGraph(
                 LoginScreen(
                     viewModel = authViewModel,
                     onLoginSuccess = {
-                        // Re-evaluation of NavHost will happen, but we can also force it
                         val next = if (userData != null && !userData.hasCompletedSetup) Screen.Onboarding.route else Screen.Permissions.route
                         navController.navigate(next) {
                             popUpTo(Screen.Login.route) { inclusive = true }
@@ -74,7 +73,6 @@ fun NavGraph(
                 SignUpScreen(
                     viewModel = authViewModel,
                     onSignUpSuccess = {
-                        // For a new user, setup is always false initially
                         navController.navigate(Screen.Onboarding.route) {
                             popUpTo(Screen.SignUp.route) { inclusive = true }
                         }
@@ -106,18 +104,19 @@ fun NavGraph(
                 )
             }
             composable(Screen.Home.route) {
-                HomeScreen()
+                HomeScreen(authViewModel = authViewModel)
             }
             composable(Screen.Community.route) {
                 CommunityScreen(
+                    authViewModel = authViewModel,
                     onNavigateToSettings = { navController.navigate(Screen.Settings.route) }
                 )
             }
             composable(Screen.Journal.route) {
-                JournalScreen()
+                JournalScreen(authViewModel = authViewModel)
             }
             composable(Screen.TriggerMap.route) {
-                TriggerMapScreen()
+                TriggerMapScreen(authViewModel = authViewModel)
             }
             composable(Screen.Admin.route) {
                 AdminScreen()

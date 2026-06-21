@@ -5,8 +5,10 @@ import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.grid.GridCells
 import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
 import androidx.compose.foundation.lazy.grid.items
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Savings
 import androidx.compose.material.icons.filled.Whatshot
@@ -20,21 +22,29 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.lifecycle.viewmodel.compose.viewModel
+import com.example.quitsync.ui.components.showcaseTarget
+import com.example.quitsync.viewmodel.AuthViewModel
 import com.example.quitsync.viewmodel.HomeViewModel
 import com.example.quitsync.viewmodel.Status
 import java.util.*
 
 @Composable
-fun HomeScreen(viewModel: HomeViewModel = viewModel()) {
+fun HomeScreen(
+    viewModel: HomeViewModel = viewModel(),
+    authViewModel: AuthViewModel = viewModel()
+) {
     val streakDays by viewModel.streakDays
     val moneySaved by viewModel.moneySaved
     val monthlyStatus by viewModel.monthlyStatus
     val currentMonthName by viewModel.currentMonthName
+    val userData by authViewModel.currentUserData
+    val scrollState = rememberScrollState()
 
     Column(
         modifier = Modifier
             .fillMaxSize()
-            .padding(16.dp),
+            .padding(16.dp)
+            .verticalScroll(scrollState),
         horizontalAlignment = Alignment.CenterHorizontally
     ) {
         Spacer(modifier = Modifier.height(16.dp))
@@ -49,12 +59,12 @@ fun HomeScreen(viewModel: HomeViewModel = viewModel()) {
 
         // Financial & Streak Stats
         Row(
-            modifier = Modifier.fillMaxWidth(),
+            modifier = Modifier.fillMaxWidth().height(IntrinsicSize.Min),
             horizontalArrangement = Arrangement.spacedBy(12.dp)
         ) {
             // Streak Card
             Card(
-                modifier = Modifier.weight(1f),
+                modifier = Modifier.weight(1f).fillMaxHeight(),
                 colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.primaryContainer)
             ) {
                 Column(
@@ -76,7 +86,12 @@ fun HomeScreen(viewModel: HomeViewModel = viewModel()) {
 
             // Savings Card
             Card(
-                modifier = Modifier.weight(1f),
+                modifier = Modifier
+                    .weight(1f)
+                    .fillMaxHeight()
+                    .showcaseTarget("financial_card") { tag, rect ->
+                        authViewModel.updateShowcaseTarget(tag, rect)
+                    },
                 colors = CardDefaults.cardColors(containerColor = Color(0xFFE8F5E9)) // Light Green
             ) {
                 Column(
@@ -99,7 +114,38 @@ fun HomeScreen(viewModel: HomeViewModel = viewModel()) {
             }
         }
 
-        Spacer(modifier = Modifier.height(32.dp))
+        Spacer(modifier = Modifier.height(24.dp))
+
+        // Goals Section
+        if (userData?.goals?.isNotEmpty() == true) {
+            Card(
+                modifier = Modifier.fillMaxWidth(),
+                elevation = CardDefaults.cardElevation(defaultElevation = 2.dp)
+            ) {
+                Column(modifier = Modifier.padding(16.dp)) {
+                    Text(
+                        text = "My Goals",
+                        style = MaterialTheme.typography.titleMedium,
+                        fontWeight = FontWeight.Bold
+                    )
+                    Spacer(modifier = Modifier.height(12.dp))
+                    @OptIn(ExperimentalLayoutApi::class)
+                    FlowRow(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.spacedBy(8.dp),
+                        verticalArrangement = Arrangement.spacedBy(8.dp)
+                    ) {
+                        userData?.goals?.forEach { goal ->
+                            SuggestionChip(
+                                onClick = { },
+                                label = { Text(goal) }
+                            )
+                        }
+                    }
+                }
+            }
+            Spacer(modifier = Modifier.height(24.dp))
+        }
 
         // Calendar Section
         Card(
@@ -147,10 +193,10 @@ fun HomeScreen(viewModel: HomeViewModel = viewModel()) {
             }
         }
 
-        Spacer(modifier = Modifier.weight(1f))
+        Spacer(modifier = Modifier.height(24.dp))
 
         Text(
-            text = "Keep going! Your lungs and wallet thank you.",
+            text = "Keep going! Your lungs and wallet will thank you.",
             style = MaterialTheme.typography.bodyMedium,
             color = MaterialTheme.colorScheme.secondary
         )

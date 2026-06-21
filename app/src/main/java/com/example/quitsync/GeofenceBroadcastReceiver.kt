@@ -39,86 +39,97 @@ class GeofenceBroadcastReceiver : BroadcastReceiver() {
 
             // Detect social risk using the new Places API logic
             detectSocialRisk(context) { category, score ->
-                // Database Integration: Save the last_visited_risk_level to the user's document
-                FirebaseFirestore.getInstance().collection("users").document(userId)
-                    .update("last_visited_risk_level", category)
-                    .addOnCompleteListener {
-                        // Risk Assignment & Notification
-                        val message = when (category) {
-                            "Red" -> "High-risk social area detected! Take a deep breath."
-                            "Orange" -> "Warning: Increased risk in this area."
-                            else -> "You've entered a trigger zone."
-                        }
-                        sendNotification(context, message)
-                        pendingResult.finish()
+                // First, fetch user dependence category to determine the primary message
+                FirebaseFirestore.getInstance().collection("users").document(userId).get()
+                    .addOnSuccessListener { userDoc ->
+                        val userDependence = userDoc.getString("nicotineDependenceCategory") ?: ""
+                        val isHighDependence = userDependence.equals("High Dependence", ignoreCase = true)
+
+                        // Database Integration: Save the last_visited_risk_level to the user's document
+                        FirebaseFirestore.getInstance().collection("users").document(userId)
+                            .update("last_visited_risk_level", category)
+                            .addOnCompleteListener {
+                                // Risk Assignment & Notification
+                                val message = if (isHighDependence) {
+                                    "High Risk Area: Stay strong!"
+                                } else {
+                                    when (category) {
+                                        "Red" -> "High-risk social area detected! Take a deep breath."
+                                        "Orange" -> "Warning: Increased risk in this area."
+                                        else -> "You've entered a trigger zone."
+                                    }
+                                }
+                                sendNotification(context, message)
+                                pendingResult.finish()
+                            }
                     }
-            }
-        }
+            }        }
     }
 
     private fun detectSocialRisk(context: Context, callback: (String, Int) -> Unit) {
-        if (!Places.isInitialized()) {
-            callback("Blue", 0)
-            return
-        }
-
-        val placesClient = Places.createClient(context)
-
-        // First, find the most likely current place ID
-        val findRequest = FindCurrentPlaceRequest.newInstance(listOf(Place.Field.ID))
-
+        val db = FirebaseFirestore.getInstance()
+        
+        // 1. Get current location from geofencing event is tricky, but we can use the Last Location
+        val fusedLocationClient = com.google.android.gms.location.LocationServices.getFusedLocationProviderClient(context)
+        
         try {
-            placesClient.findCurrentPlace(findRequest).addOnSuccessListener { response ->
-                val placeId = response.placeLikelihoods.firstOrNull()?.place?.id
+            fusedLocationClient.lastLocation.addOnSuccessListener { location ->
+                if (location == null) {
+                    callback("Blue", 0)
+                    return@addOnSuccessListener
+                }
 
-                if (placeId != null) {
-                    // Use fetchPlace() to retrieve displayName, types, and outdoorSeating as requested
-                    val fetchRequest = FetchPlaceRequest.newInstance(placeId, listOf(
-                        Place.Field.DISPLAY_NAME,
-                        Place.Field.TYPES,
-                        Place.Field.OUTDOOR_SEATING
-                    ))
+                val lat = location.latitude
+                val lng = location.longitude
 
-                    placesClient.fetchPlace(fetchRequest).addOnSuccessListener { fetchResponse ->
-                        val place = fetchResponse.place
-                        val displayName = place.displayName?.lowercase() ?: ""
-                        val types = place.types ?: emptyList()
-                        val hasOutdoor = place.outdoorSeating == Place.BooleanPlaceAttributeValue.TRUE
+                // Logic: Categorize based on shared journal data
+                db.collection("journals")
+                    .whereEqualTo("didSmoke", true)
+                    .get()
+                    .addOnSuccessListener { smokingJournals ->
+                        val allSmokers = smokingJournals.documents.mapNotNull { it.getString("userId") }.toSet()
+                        val totalSmokerCount = allSmokers.size
 
-                        var locationRiskScore = 0
-                        var category = "Blue"
-
-                        // Mamak Detection: displayName contains 'mamak' OR 'nasi kandar' AND outdoorSeating is true
-                        if ((displayName.contains("mamak") || displayName.contains("nasi kandar")) && hasOutdoor) {
-                            locationRiskScore = 8
+                        if (totalSmokerCount == 0) {
+                            callback("Blue", 0)
+                            return@addOnSuccessListener
                         }
 
-                        // Risk Assignment
-                        if (locationRiskScore >= 7) {
-                            category = "Red"
-                        } else if (types.contains(Place.Type.CAFE) && !hasOutdoor) {
-                            // If place type is 'CAFE' without outdoor seating: Set category to Orange
-                            category = "Orange"
-                        } else if (types.contains(Place.Type.BAR) || types.contains(Place.Type.NIGHT_CLUB)) {
-                            category = "Red"
-                        }
+                        // Count unique users who smoked near this location (within ~100 meters)
+                        val nearSmokers = smokingJournals.documents.filter { doc ->
+                            val jLat = doc.getDouble("latitude")
+                            val jLng = doc.getDouble("longitude")
+                            if (jLat != null && jLng != null) {
+                                calculateDistance(lat, lng, jLat, jLng) <= 100
+                            } else {
+                                false
+                            }
+                        }.mapNotNull { it.getString("userId") }.toSet()
+                        
+                        val nearSmokerCount = nearSmokers.size
+                        val percentage = (nearSmokerCount.toFloat() / totalSmokerCount.toFloat()) * 100
 
-                        callback(category, locationRiskScore)
-                    }.addOnFailureListener { e ->
-                        Log.e("GeofenceReceiver", "FetchPlace failure: ${e.message}")
+                        val category = when {
+                            percentage >= 70 -> "Red"
+                            percentage >= 40 -> "Orange"
+                            else -> "Blue"
+                        }
+                        
+                        callback(category, nearSmokerCount)
+                    }
+                    .addOnFailureListener {
                         callback("Blue", 0)
                     }
-                } else {
-                    callback("Blue", 0)
-                }
-            }.addOnFailureListener { e ->
-                Log.e("GeofenceReceiver", "FindCurrentPlace failure: ${e.message}")
-                callback("Blue", 0)
             }
         } catch (e: SecurityException) {
-            Log.e("GeofenceReceiver", "Location permission missing")
             callback("Blue", 0)
         }
+    }
+
+    private fun calculateDistance(lat1: Double, lng1: Double, lat2: Double, lng2: Double): Float {
+        val results = FloatArray(1)
+        android.location.Location.distanceBetween(lat1, lng1, lat2, lng2, results)
+        return results[0]
     }
 
     private fun geofenceTransition(event: GeofencingEvent): Int {

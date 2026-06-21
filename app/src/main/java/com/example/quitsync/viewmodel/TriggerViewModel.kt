@@ -7,15 +7,12 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.lifecycle.AndroidViewModel
 import com.example.quitsync.GeofenceManager
 import com.example.quitsync.model.TriggerZone
+import com.example.quitsync.model.SmokingHotspot
 import com.google.android.gms.maps.model.LatLng
-import com.google.android.libraries.places.api.Places
-import com.google.android.libraries.places.api.model.CircularBounds
-import com.google.android.libraries.places.api.model.Place
-import com.google.android.libraries.places.api.net.FetchPlaceRequest
-import com.google.android.libraries.places.api.net.FindCurrentPlaceRequest
-import com.google.android.libraries.places.api.net.SearchNearbyRequest
 import com.google.firebase.auth.FirebaseAuth
 import com.google.firebase.firestore.FirebaseFirestore
+import com.google.firebase.firestore.ListenerRegistration
+import java.util.*
 
 sealed class TriggerUiState {
     object Idle : TriggerUiState()
@@ -41,9 +38,51 @@ class TriggerViewModel(application: Application) : AndroidViewModel(application)
     private val _desirePercentage = mutableStateOf(0)
     val desirePercentage: State<Int> = _desirePercentage
 
+    private var hotspotListener: ListenerRegistration? = null
+
     init {
         fetchTriggerZones()
         fetchUserData()
+        listenToHotspots()
+        syncSmokingHotspots()
+    }
+
+    private fun syncSmokingHotspots() {
+        val currentUserId = auth.currentUser?.uid ?: return
+
+        db.collection("journals")
+            .whereEqualTo("userId", currentUserId)
+            .whereEqualTo("didSmoke", true)
+            .get()
+            .addOnSuccessListener { snapshot ->
+                if (snapshot != null && !snapshot.isEmpty) {
+                    snapshot.documents.forEach { doc ->
+                        val lat = doc.getDouble("latitude")
+                        val lng = doc.getDouble("longitude")
+                        if (lat != null && lng != null) {
+                            recordSmokingHotspot(lat, lng)
+                        }
+                    }
+                }
+            }
+    }
+
+    private fun listenToHotspots() {
+        hotspotListener?.remove()
+        hotspotListener = db.collection("smoking_hotspots").addSnapshotListener { snapshot, e ->
+            if (e != null) {
+                Log.e("TriggerViewModel", "Hotspot listener failed: ${e.message}")
+                return@addSnapshotListener
+            }
+            if (snapshot != null) {
+                try {
+                    val hotspots = snapshot.toObjects(SmokingHotspot::class.java)
+                    recalculateRiskForZones(_triggerZones.value, hotspots)
+                } catch (ex: Exception) {
+                    Log.e("TriggerViewModel", "Error parsing hotspots", ex)
+                }
+            }
+        }
     }
 
     private fun fetchUserData() {
@@ -63,14 +102,101 @@ class TriggerViewModel(application: Application) : AndroidViewModel(application)
             .whereEqualTo("userId", userId)
             .addSnapshotListener { snapshot, e ->
                 if (e != null) {
-                    Log.e("TriggerViewModel", "Listen failed.", e)
+                    Log.e("TriggerViewModel", "Trigger zones listen failed.", e)
                     return@addSnapshotListener
                 }
 
                 if (snapshot != null) {
-                    _triggerZones.value = snapshot.toObjects(TriggerZone::class.java)
+                    val zones = snapshot.toObjects(TriggerZone::class.java)
+                    db.collection("smoking_hotspots").get()
+                        .addOnSuccessListener { hotspotSnapshot ->
+                            try {
+                                recalculateRiskForZones(zones, hotspotSnapshot.toObjects(SmokingHotspot::class.java))
+                            } catch (ex: Exception) {
+                                Log.e("TriggerViewModel", "Error parsing hotspots in fetch", ex)
+                                _triggerZones.value = zones
+                            }
+                        }
+                        .addOnFailureListener {
+                            _triggerZones.value = zones
+                        }
                 }
             }
+    }
+
+    private fun recalculateRiskForZones(zones: List<TriggerZone>, hotspots: List<SmokingHotspot>) {
+        if (zones.isEmpty()) {
+            _triggerZones.value = zones
+            return
+        }
+
+        val updatedZones = zones.map { zone ->
+            val baseRadius = zone.radius
+
+            // Absolute Count Strategy: sum unique smokers within the zone's influence area
+            val nearSmokers = hotspots.filter { spot ->
+                calculateDistance(zone.latitude, zone.longitude, spot.latitude, spot.longitude) <= (baseRadius * 1.3f)
+            }.flatMap { it.smoker_user_ids }.toSet()
+
+            val nearSmokerCount = nearSmokers.size
+
+            val newCategory = when {
+                nearSmokerCount >= 3 -> "Red"
+                nearSmokerCount >= 2 -> "Yellow"
+                else -> "Blue"
+            }
+
+            Log.d("TriggerViewModel", "Zone ${zone.name}: $nearSmokerCount unique smokers. Result: $newCategory")
+
+            if (newCategory != zone.category && zone.id.isNotEmpty()) {
+                db.collection("trigger_zones").document(zone.id).update("category", newCategory)
+            }
+
+            zone.copy(category = newCategory)
+        }
+        _triggerZones.value = updatedZones
+    }
+
+    private fun recordSmokingHotspot(latitude: Double, longitude: Double) {
+        val currentUserId = auth.currentUser?.uid ?: return
+
+        // 1. Round to 3 decimal places to create a ~110m grouping grid
+        val latRounded = String.format(java.util.Locale.US, "%.3f", latitude)
+        val lngRounded = String.format(java.util.Locale.US, "%.3f", longitude)
+
+        // 2. Create the unique collaborative document ID
+        val docId = "${latRounded}_${lngRounded}".replace(".", "_")
+        val hotspotRef = db.collection("smoking_hotspots").document(docId)
+
+        db.runTransaction { transaction ->
+            val snapshot = transaction.get(hotspotRef)
+
+            if (!snapshot.exists()) {
+                // Initial creation of the collaborative hotspot
+                val newHotspot = mapOf(
+                    "latitude" to latitude, // Can keep exact lat/lng for mapping
+                    "longitude" to longitude,
+                    "smoker_user_ids" to listOf(currentUserId),
+                    "unique_smokers_count" to 1,
+                    "lastUpdated" to com.google.firebase.firestore.FieldValue.serverTimestamp()
+                )
+                transaction.set(hotspotRef, newHotspot)
+            } else {
+                // Update existing hotspot only if user is new to this spot
+                val smokerIds = snapshot.get("smoker_user_ids") as? List<String> ?: emptyList()
+
+                if (!smokerIds.contains(currentUserId)) {
+                    val updatedIds = smokerIds + currentUserId
+                    transaction.update(hotspotRef, "smoker_user_ids", updatedIds)
+                    transaction.update(hotspotRef, "unique_smokers_count", com.google.firebase.firestore.FieldValue.increment(1))
+                    transaction.update(hotspotRef, "lastUpdated", com.google.firebase.firestore.FieldValue.serverTimestamp())
+                }
+            }
+        }.addOnSuccessListener {
+            Log.d("Hotspot", "Collaborative update successful for grid: $docId")
+        }.addOnFailureListener { e ->
+            Log.e("Hotspot", "Transaction failed", e)
+        }
     }
 
     fun saveTriggerZone(name: String, lat: Double, lng: Double, radius: Float) {
@@ -81,7 +207,7 @@ class TriggerViewModel(application: Application) : AndroidViewModel(application)
 
         _uiState.value = TriggerUiState.Loading
 
-        detectCategory(lat, lng) { category ->
+        detectCategory(lat, lng, radius) { category ->
             val zone = TriggerZone(
                 userId = userId,
                 name = name,
@@ -98,6 +224,7 @@ class TriggerViewModel(application: Application) : AndroidViewModel(application)
                         geofenceManager.addGeofence(zone, _desirePercentage.value)
                         _uiState.value = TriggerUiState.Success
                     } catch (e: Exception) {
+                        Log.e("TriggerViewModel", "Geofence error", e)
                         _uiState.value = TriggerUiState.Error("Saved to DB, but failed to activate alert.")
                     }
                 }
@@ -108,63 +235,46 @@ class TriggerViewModel(application: Application) : AndroidViewModel(application)
         }
     }
 
-    private fun detectCategory(lat: Double, lng: Double, callback: (String) -> Unit) {
-        if (!Places.isInitialized()) {
-            callback("Blue")
-            return
-        }
+    fun detectCategory(lat: Double, lng: Double, radius: Float, callback: (String) -> Unit) {
+        db.collection("smoking_hotspots").get()
+            .addOnSuccessListener { snapshot ->
+                try {
+                    val hotspots = snapshot.toObjects(SmokingHotspot::class.java)
+                    
+                    val nearSmokers = hotspots.filter { spot ->
+                        calculateDistance(lat, lng, spot.latitude, spot.longitude) <= (radius * 1.3f)
+                    }.flatMap { it.smoker_user_ids }.toSet()
 
-        val placesClient = Places.createClient(getApplication())
+                    val nearSmokerCount = nearSmokers.size
 
-        // Search for places at the specific coordinates selected on the map
-        val center = LatLng(lat, lng)
-        val circle = CircularBounds.newInstance(center, 50.0) // 50m radius search
-
-        val placeFields = listOf(
-            Place.Field.ID,
-            Place.Field.DISPLAY_NAME,
-            Place.Field.TYPES,
-            Place.Field.OUTDOOR_SEATING
-        )
-
-        val searchNearbyRequest = SearchNearbyRequest.newInstance(circle, placeFields)
-
-        try {
-            placesClient.searchNearby(searchNearbyRequest).addOnSuccessListener { response ->
-                val place = response.places.firstOrNull()
-
-                if (place != null) {
-                    val displayName = place.displayName?.lowercase() ?: ""
-                    val types = place.types ?: emptyList()
-                    val hasOutdoor = place.outdoorSeating == Place.BooleanPlaceAttributeValue.TRUE
-
-                    var category = "Blue"
-                    // Robust check for Mamak/Nasi Kandar
-                    if ((displayName.contains("mamak") || displayName.contains("nasi kandar")) && hasOutdoor) {
-                        category = "Red"
-                    } else if (types.contains(Place.Type.CAFE) && !hasOutdoor) {
-                        category = "Orange"
-                    } else if (types.contains(Place.Type.BAR) || types.contains(Place.Type.NIGHT_CLUB)) {
-                        category = "Red"
+                    val category = when {
+                        nearSmokerCount >= 3 -> "Red"
+                        nearSmokerCount >= 2 -> "Yellow"
+                        else -> "Blue"
                     }
                     callback(category)
-                } else {
+                } catch (e: Exception) {
+                    Log.e("TriggerViewModel", "Parsing error in detectCategory", e)
                     callback("Blue")
                 }
-            }.addOnFailureListener { e ->
-                Log.e("TriggerViewModel", "SearchNearby failed: ${e.message}")
+            }
+            .addOnFailureListener { e ->
+                Log.e("TriggerViewModel", "Failed to analyze hotspots: ${e.message}")
                 callback("Blue")
             }
-        } catch (e: SecurityException) {
-            callback("Blue")
-        }
+    }
+
+    private fun calculateDistance(lat1: Double, lng1: Double, lat2: Double, lng2: Double): Float {
+        val results = FloatArray(1)
+        android.location.Location.distanceBetween(lat1, lng1, lat2, lng2, results)
+        return results[0]
     }
 
     fun updateTriggerZone(zoneId: String, oldName: String, name: String, lat: Double, lng: Double, radius: Float) {
         if (zoneId.isEmpty()) return
         _uiState.value = TriggerUiState.Loading
 
-        detectCategory(lat, lng) { category ->
+        detectCategory(lat, lng, radius) { category ->
             val updates = mapOf(
                 "name" to name,
                 "latitude" to lat,
@@ -177,7 +287,6 @@ class TriggerViewModel(application: Application) : AndroidViewModel(application)
                 .update(updates)
                 .addOnSuccessListener {
                     try {
-                        // Remove old geofence and add new one
                         geofenceManager.removeGeofence(oldName)
                         val newZone = TriggerZone(id = zoneId, name = name, latitude = lat, longitude = lng, radius = radius, category = category)
                         geofenceManager.addGeofence(newZone, _desirePercentage.value)
@@ -211,5 +320,10 @@ class TriggerViewModel(application: Application) : AndroidViewModel(application)
 
     fun resetState() {
         _uiState.value = TriggerUiState.Idle
+    }
+
+    override fun onCleared() {
+        super.onCleared()
+        hotspotListener?.remove()
     }
 }

@@ -3,12 +3,16 @@ package com.example.quitsync.viewmodel
 import android.util.Log
 import androidx.lifecycle.ViewModel
 import com.google.firebase.auth.FirebaseAuth
+import com.google.firebase.auth.AuthCredential
+import com.google.firebase.auth.GoogleAuthProvider
 import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.mutableStateMapOf
 import androidx.compose.runtime.State
 import com.example.quitsync.model.User
 import com.google.firebase.firestore.FirebaseFirestore
 import com.google.firebase.firestore.ListenerRegistration
 import com.google.firebase.firestore.SetOptions
+import com.google.android.gms.tasks.Tasks
 import java.util.Date
 
 class AuthViewModel : ViewModel() {
@@ -27,6 +31,14 @@ class AuthViewModel : ViewModel() {
 
     private val _isUserDataLoading = mutableStateOf(auth.currentUser != null)
     val isUserDataLoading: State<Boolean> = _isUserDataLoading
+
+    // Showcase Tour State
+    private val _showcaseTargets = mutableStateMapOf<String, androidx.compose.ui.geometry.Rect>()
+    val showcaseTargets: Map<String, androidx.compose.ui.geometry.Rect> = _showcaseTargets
+
+    fun updateShowcaseTarget(tag: String, rect: androidx.compose.ui.geometry.Rect) {
+        _showcaseTargets[tag] = rect
+    }
 
     init {
         if (auth.currentUser != null) {
@@ -70,6 +82,7 @@ class AuthViewModel : ViewModel() {
             return
         }
 
+        Log.d("AuthViewModel", "Attempting signUp for: $trimmedEmail")
         auth.createUserWithEmailAndPassword(trimmedEmail, password)
             .addOnCompleteListener { task ->
                 if (task.isSuccessful) {
@@ -86,29 +99,90 @@ class AuthViewModel : ViewModel() {
                         )
                         db.collection("users").document(firebaseUser.uid).set(newUser)
                             .addOnSuccessListener {
+                                Log.d("AuthViewModel", "User profile created successfully in Firestore")
                                 _isUserLoggedIn.value = true
                                 fetchCurrentUserData()
                                 onResult(true, null)
                             }
                             .addOnFailureListener { e ->
+                                Log.e("AuthViewModel", "Failed to create Firestore profile", e)
                                 onResult(false, "Failed to create profile: ${e.message}")
                             }
                     }
                 } else {
-                    onResult(false, task.exception?.message)
+                    val exception = task.exception
+                    Log.e("AuthViewModel", "signUp failed", exception)
+                    onResult(false, exception?.message)
                 }
             }
     }
 
     fun signIn(email: String, password: String, onResult: (Boolean, String?) -> Unit) {
+        val trimmedEmail = email.trim()
+        Log.d("AuthViewModel", "Attempting signIn for: $trimmedEmail")
         auth.signInWithEmailAndPassword(email.trim(), password)
             .addOnCompleteListener { task ->
                 if (task.isSuccessful) {
+                    Log.d("AuthViewModel", "signIn successful")
                     _isUserLoggedIn.value = true
                     fetchCurrentUserData()
                     onResult(true, null)
                 } else {
-                    onResult(false, task.exception?.message)
+                    val exception = task.exception
+                    Log.e("AuthViewModel", "signIn failed", exception)
+                    onResult(false, exception?.message)
+                }
+            }
+    }
+
+    fun signInWithGoogle(credential: AuthCredential, onResult: (Boolean, String?) -> Unit) {
+        Log.d("AuthViewModel", "Attempting signInWithGoogle")
+        auth.signInWithCredential(credential)
+            .addOnCompleteListener { task ->
+                if (task.isSuccessful) {
+                    val firebaseUser = auth.currentUser
+                    if (firebaseUser != null) {
+                        // Check if user already exists in Firestore
+                        db.collection("users").document(firebaseUser.uid).get()
+                            .addOnSuccessListener { document ->
+                                if (!document.exists()) {
+                                    // Create new user profile if it doesn't exist
+                                    val newUser = User(
+                                        uid = firebaseUser.uid,
+                                        email = firebaseUser.email ?: "",
+                                        role = "user",
+                                        cigarettePrice = 0.0,
+                                        dailyCigarettes = 10,
+                                        cigarettesPerPack = 20,
+                                        quitDate = Date()
+                                    )
+                                    db.collection("users").document(firebaseUser.uid).set(newUser)
+                                        .addOnSuccessListener {
+                                            Log.d("AuthViewModel", "Google user profile created in Firestore")
+                                            _isUserLoggedIn.value = true
+                                            fetchCurrentUserData()
+                                            onResult(true, null)
+                                        }
+                                        .addOnFailureListener { e ->
+                                            Log.e("AuthViewModel", "Failed to create Google user profile", e)
+                                            onResult(false, "Failed to create profile: ${e.message}")
+                                        }
+                                } else {
+                                    Log.d("AuthViewModel", "Google user already exists in Firestore")
+                                    _isUserLoggedIn.value = true
+                                    fetchCurrentUserData()
+                                    onResult(true, null)
+                                }
+                            }
+                            .addOnFailureListener { e ->
+                                Log.e("AuthViewModel", "Failed to check Google user existence", e)
+                                onResult(false, "Failed to check profile: ${e.message}")
+                            }
+                    }
+                } else {
+                    val exception = task.exception
+                    Log.e("AuthViewModel", "signInWithGoogle failed", exception)
+                    onResult(false, exception?.message)
                 }
             }
     }
@@ -188,6 +262,13 @@ class AuthViewModel : ViewModel() {
             .addOnFailureListener { onResult(false, it.localizedMessage) }
     }
 
+    fun completeTour() {
+        val uid = auth.currentUser?.uid ?: return
+        val updates = mapOf("hasSeenTour" to true)
+        db.collection("users").document(uid).set(updates, SetOptions.merge())
+            .addOnFailureListener { Log.e("AuthViewModel", "Failed to update tour status: ${it.message}") }
+    }
+
     fun changePassword(newPassword: String, onResult: (Boolean, String?) -> Unit) {
         auth.currentUser?.updatePassword(newPassword)
             ?.addOnCompleteListener { task ->
@@ -205,6 +286,7 @@ class AuthViewModel : ViewModel() {
         _isUserLoggedIn.value = false
         _currentUserData.value = null
         _currentUserRole.value = "user"
+        _showcaseTargets.clear()
     }
 
     fun deleteAccount(onResult: (Boolean, String?) -> Unit) {
@@ -214,24 +296,102 @@ class AuthViewModel : ViewModel() {
         }
         val uid = user.uid
 
-        // 1. Delete Firestore data first
-        db.collection("users").document(uid).delete()
+        Log.d("AuthViewModel", "Starting cascading delete for UID: $uid")
+
+        // 1. Define deletion tasks for related collections
+        val journalsTask = db.collection("journals").whereEqualTo("userId", uid).get()
+            .continueWithTask { task ->
+                val deletes = task.result?.documents?.map { it.reference.delete() } ?: emptyList()
+                Tasks.whenAll(deletes)
+            }
+
+        val triggerZonesTask = db.collection("trigger_zones").whereEqualTo("userId", uid).get()
+            .continueWithTask { task ->
+                val deletes = task.result?.documents?.map { it.reference.delete() } ?: emptyList()
+                Tasks.whenAll(deletes)
+            }
+
+        val postsTask = db.collection("forum_posts").whereEqualTo("userId", uid).get()
+            .continueWithTask { task ->
+                val deletes = task.result?.documents?.map { it.reference.delete() } ?: emptyList()
+                Tasks.whenAll(deletes)
+            }
+
+        // 2. Wait for all background data to be deleted
+        Tasks.whenAll(journalsTask, triggerZonesTask, postsTask)
             .addOnSuccessListener {
-                // 2. Delete Auth account
-                user.delete()
-                    .addOnCompleteListener { task ->
-                        if (task.isSuccessful) {
-                            _isUserLoggedIn.value = false
-                            _currentUserData.value = null
-                            onResult(true, null)
-                        } else {
-                            onResult(false, task.exception?.message ?: "Failed to delete account from Auth. You might need to re-authenticate.")
-                        }
+                Log.d("AuthViewModel", "Related data deleted, now deleting user document")
+                // 3. Delete user document
+                db.collection("users").document(uid).delete()
+                    .addOnSuccessListener {
+                        Log.d("AuthViewModel", "User document deleted, now deleting auth account")
+                        // 4. Delete Auth account
+                        user.delete()
+                            .addOnCompleteListener { task ->
+                                if (task.isSuccessful) {
+                                    _isUserLoggedIn.value = false
+                                    _currentUserData.value = null
+                                    onResult(true, null)
+                                } else {
+                                    Log.e("AuthViewModel", "Auth deletion failed", task.exception)
+                                    onResult(false, task.exception?.message ?: "Failed to delete account from Auth. You might need to re-authenticate.")
+                                }
+                            }
+                    }
+                    .addOnFailureListener { e ->
+                        Log.e("AuthViewModel", "User document deletion failed", e)
+                        onResult(false, "Failed to delete profile data: ${e.message}")
                     }
             }
             .addOnFailureListener { e ->
-                onResult(false, "Failed to delete profile data: ${e.message}")
+                Log.e("AuthViewModel", "Cascading data deletion failed", e)
+                onResult(false, "Failed to delete related data: ${e.message}")
             }
+    }
+
+    /**
+     * Aggregates smoking location data into a collaborative hotspot grid (~110m).
+     * Rounds coordinates to 3 decimal places to group users nearby.
+     */
+    fun recordSmokingHotspot(latitude: Double, longitude: Double) {
+        val currentUserId = auth.currentUser?.uid ?: return
+        
+        // 1. Round to 3 decimal places for ~110m grid
+        val latRounded = "%.3f".format(java.util.Locale.US, latitude)
+        val lngRounded = "%.3f".format(java.util.Locale.US, longitude)
+        
+        // 2. Create unique ID: latRounded_lngRounded (replace . with _)
+        val docId = "${latRounded}_${lngRounded}".replace(".", "_")
+        val hotspotRef = db.collection("smoking_hotspots").document(docId)
+
+        db.runTransaction { transaction ->
+            val snapshot = transaction.get(hotspotRef)
+            
+            if (!snapshot.exists()) {
+                // Create new hotspot with exact coordinates of the first report in this grid
+                val newHotspot = mapOf(
+                    "latitude" to latitude,
+                    "longitude" to longitude,
+                    "smoker_user_ids" to listOf(currentUserId),
+                    "unique_smokers_count" to 1,
+                    "lastUpdated" to com.google.firebase.firestore.FieldValue.serverTimestamp()
+                )
+                transaction.set(hotspotRef, newHotspot)
+            } else {
+                // If exists, add user to array if not already there
+                val smokerIds = snapshot.get("smoker_user_ids") as? List<String> ?: emptyList()
+                if (!smokerIds.contains(currentUserId)) {
+                    val updatedIds = smokerIds + currentUserId
+                    transaction.update(hotspotRef, "smoker_user_ids", updatedIds)
+                    transaction.update(hotspotRef, "unique_smokers_count", com.google.firebase.firestore.FieldValue.increment(1))
+                    transaction.update(hotspotRef, "lastUpdated", com.google.firebase.firestore.FieldValue.serverTimestamp())
+                }
+            }
+        }.addOnSuccessListener {
+            Log.d("AuthViewModel", "Hotspot aggregated successfully at grid: $docId")
+        }.addOnFailureListener { e ->
+            Log.e("AuthViewModel", "Hotspot aggregation failed", e)
+        }
     }
 
     override fun onCleared() {

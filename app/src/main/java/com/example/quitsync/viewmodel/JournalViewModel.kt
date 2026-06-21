@@ -34,6 +34,69 @@ class JournalViewModel(application: Application) : AndroidViewModel(application)
 
     init {
         fetchJournalEntries()
+        syncSmokingHotspots()
+    }
+
+    /**
+     * One-time sync to ensure existing private smoking reports are mirrored 
+     * to the public hotspot collection for the shared collaborative calculation.
+     */
+    private fun syncSmokingHotspots() {
+        val currentUserId = auth.currentUser?.uid ?: return
+        
+        db.collection("journals")
+            .whereEqualTo("userId", currentUserId)
+            .whereEqualTo("didSmoke", true)
+            .get()
+            .addOnSuccessListener { snapshot ->
+                if (snapshot != null && !snapshot.isEmpty) {
+                    snapshot.documents.forEach { doc ->
+                        val lat = doc.getDouble("latitude")
+                        val lng = doc.getDouble("longitude")
+                        if (lat != null && lng != null) {
+                            recordSmokingHotspot(lat, lng)
+                        }
+                    }
+                }
+            }
+    }
+
+    private fun recordSmokingHotspot(latitude: Double, longitude: Double) {
+        val currentUserId = auth.currentUser?.uid ?: return
+        
+        // Round to 3 decimal places for ~110m grid
+        val latRounded = "%.3f".format(java.util.Locale.US, latitude)
+        val lngRounded = "%.3f".format(java.util.Locale.US, longitude)
+        val docId = "${latRounded}_${lngRounded}".replace(".", "_")
+        
+        val hotspotRef = db.collection("smoking_hotspots").document(docId)
+
+        db.runTransaction { transaction ->
+            val snapshot = transaction.get(hotspotRef)
+            
+            if (!snapshot.exists()) {
+                val newHotspot = mapOf(
+                    "latitude" to latitude,
+                    "longitude" to longitude,
+                    "smoker_user_ids" to listOf(currentUserId),
+                    "unique_smokers_count" to 1,
+                    "lastUpdated" to com.google.firebase.firestore.FieldValue.serverTimestamp()
+                )
+                transaction.set(hotspotRef, newHotspot)
+            } else {
+                val smokerIds = snapshot.get("smoker_user_ids") as? List<String> ?: emptyList()
+                if (!smokerIds.contains(currentUserId)) {
+                    val updatedIds = smokerIds + currentUserId
+                    transaction.update(hotspotRef, "smoker_user_ids", updatedIds)
+                    transaction.update(hotspotRef, "unique_smokers_count", com.google.firebase.firestore.FieldValue.increment(1))
+                    transaction.update(hotspotRef, "lastUpdated", com.google.firebase.firestore.FieldValue.serverTimestamp())
+                }
+            }
+        }.addOnSuccessListener {
+            Log.d("JournalViewModel", "Hotspot aggregated successfully at $docId")
+        }.addOnFailureListener { e ->
+            Log.e("JournalViewModel", "Hotspot aggregation failed", e)
+        }
     }
 
     fun fetchJournalEntries() {
@@ -68,7 +131,7 @@ class JournalViewModel(application: Application) : AndroidViewModel(application)
             }
     }
 
-    fun saveJournalEntry(text: String, didSmoke: Boolean) {
+    fun saveJournalEntry(text: String, didSmoke: Boolean, lat: Double? = null, lng: Double? = null) {
         val currentUserId = auth.currentUser?.uid ?: return
         _uiState.value = JournalUiState.Loading
 
@@ -80,13 +143,18 @@ class JournalViewModel(application: Application) : AndroidViewModel(application)
                     content = text,
                     sentiment = sentimentResult,
                     didSmoke = didSmoke,
+                    latitude = if (didSmoke) lat else null,
+                    longitude = if (didSmoke) lng else null,
                     timestamp = Date()
                 )
 
                 db.collection("journals").add(entry)
-                    .addOnSuccessListener {
-                        if (didSmoke) {
+                    .addOnSuccessListener { docRef ->
+                        if (didSmoke && lat != null && lng != null) {
                             db.collection("users").document(currentUserId).update("quitDate", Date())
+                            
+                            // Collaborative hotspot update
+                            recordSmokingHotspot(lat, lng)
                         }
                         _uiState.value = JournalUiState.Success
                     }
@@ -100,7 +168,7 @@ class JournalViewModel(application: Application) : AndroidViewModel(application)
         }
     }
 
-    fun updateJournalEntry(entryId: String, text: String, didSmoke: Boolean) {
+    fun updateJournalEntry(entryId: String, text: String, didSmoke: Boolean, lat: Double? = null, lng: Double? = null) {
         if (entryId.isEmpty()) {
             Log.e("JournalViewModel", "Update failed: entryId is empty")
             return
@@ -111,11 +179,27 @@ class JournalViewModel(application: Application) : AndroidViewModel(application)
         viewModelScope.launch {
             try {
                 val sentimentResult = sentimentAnalyzer.analyzeSentiment(text)
+                val updates = mutableMapOf<String, Any>(
+                    "content" to text,
+                    "didSmoke" to didSmoke,
+                    "sentiment" to sentimentResult
+                )
+                if (didSmoke) {
+                    lat?.let { updates["latitude"] = it }
+                    lng?.let { updates["longitude"] = it }
+                } else {
+                    updates["latitude"] = com.google.firebase.firestore.FieldValue.delete()
+                    updates["longitude"] = com.google.firebase.firestore.FieldValue.delete()
+                }
+
                 db.collection("journals").document(entryId)
-                    .update(mapOf("content" to text, "didSmoke" to didSmoke, "sentiment" to sentimentResult))
+                    .update(updates)
                     .addOnSuccessListener {
-                        if (didSmoke) {
+                        if (didSmoke && lat != null && lng != null) {
                             db.collection("users").document(currentUserId).update("quitDate", Date())
+                            
+                             // Collaborative hotspot update
+                            recordSmokingHotspot(lat, lng)
                         }
                         _uiState.value = JournalUiState.Success
                     }

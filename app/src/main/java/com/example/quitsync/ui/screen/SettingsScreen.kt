@@ -88,7 +88,11 @@ fun SettingsScreen(
 
                     OutlinedTextField(
                         value = cigarettePrice,
-                        onValueChange = { cigarettePrice = it },
+                        onValueChange = { input ->
+                            if (input.all { it.isDigit() || it == '.' } && input.count { it == '.' } <= 1) {
+                                cigarettePrice = input
+                            }
+                        },
                         label = { Text("Price per Pack (RM)") },
                         keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal),
                         modifier = Modifier.fillMaxWidth()
@@ -98,7 +102,11 @@ fun SettingsScreen(
 
                     OutlinedTextField(
                         value = dailyCigarettes,
-                        onValueChange = { dailyCigarettes = it },
+                        onValueChange = { input ->
+                            if (input.all { it.isDigit() }) {
+                                dailyCigarettes = input
+                            }
+                        },
                         label = { Text("Cigarettes Smoked per Day") },
                         keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
                         modifier = Modifier.fillMaxWidth()
@@ -108,7 +116,11 @@ fun SettingsScreen(
 
                     OutlinedTextField(
                         value = cigarettesPerPack,
-                        onValueChange = { cigarettesPerPack = it },
+                        onValueChange = { input ->
+                            if (input.all { it.isDigit() }) {
+                                cigarettesPerPack = input
+                            }
+                        },
                         label = { Text("Cigarettes per Pack") },
                         keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
                         modifier = Modifier.fillMaxWidth()

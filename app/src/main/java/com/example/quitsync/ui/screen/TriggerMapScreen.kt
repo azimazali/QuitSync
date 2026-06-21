@@ -29,9 +29,14 @@ import com.google.android.gms.maps.model.BitmapDescriptorFactory
 import com.google.android.gms.maps.model.CameraPosition
 import com.google.android.gms.maps.model.LatLng
 import com.google.maps.android.compose.*
+import com.example.quitsync.ui.components.showcaseTarget
+import com.example.quitsync.viewmodel.AuthViewModel
 
 @Composable
-fun TriggerMapScreen(viewModel: TriggerViewModel = viewModel()) {
+fun TriggerMapScreen(
+    viewModel: TriggerViewModel = viewModel(),
+    authViewModel: AuthViewModel = viewModel()
+) {
     val context = LocalContext.current
     val uiState by viewModel.uiState
     val triggerZones by viewModel.triggerZones
@@ -77,6 +82,16 @@ fun TriggerMapScreen(viewModel: TriggerViewModel = viewModel()) {
     var selectedLocation by remember { mutableStateOf<LatLng?>(null) }
     var showDialog by remember { mutableStateOf(false) }
     var zoneName by remember { mutableStateOf("") }
+    var zoneRadius by remember { mutableStateOf(100f) }
+    var previewCategory by remember { mutableStateOf("Blue") }
+
+    LaunchedEffect(selectedLocation, zoneRadius) {
+        selectedLocation?.let { loc ->
+            viewModel.detectCategory(loc.latitude, loc.longitude, zoneRadius) { category ->
+                previewCategory = category
+            }
+        }
+    }
 
     LaunchedEffect(uiState) {
         if (uiState is TriggerUiState.Success) {
@@ -121,19 +136,22 @@ fun TriggerMapScreen(viewModel: TriggerViewModel = viewModel()) {
                     onMapLongClick = { selectedLocation = it },
                     properties = MapProperties(isMyLocationEnabled = hasFineLocationPermission)
                 ) {
-                    // Show saved zones as blue/red circles/markers (exclude the one being edited to avoid confusion)
+                    // Show saved zones as blue/yellow/red circles/markers (exclude the one being edited to avoid confusion)
                     triggerZones.forEach { zone ->
                         if (zone.id != zoneToEdit?.id) {
                             val zoneColor = RiskUtils.getCategoryColor(zone.category)
+
                             val adjustedRadius = zone.radius * (1.0f + (viewModel.desirePercentage.value / 100.0f))
 
                             Marker(
                                 state = MarkerState(position = LatLng(zone.latitude, zone.longitude)),
                                 title = zone.name,
                                 icon = BitmapDescriptorFactory.defaultMarker(
-                                    if (zone.category == "Red") BitmapDescriptorFactory.HUE_RED 
-                                    else if (zone.category == "Orange") BitmapDescriptorFactory.HUE_ORANGE
-                                    else BitmapDescriptorFactory.HUE_AZURE
+                                    when (zone.category) {
+                                        "Red" -> BitmapDescriptorFactory.HUE_RED
+                                        "Yellow" -> BitmapDescriptorFactory.HUE_YELLOW
+                                        else -> BitmapDescriptorFactory.HUE_AZURE
+                                    }
                                 )
                             )
                             Circle(
@@ -147,16 +165,25 @@ fun TriggerMapScreen(viewModel: TriggerViewModel = viewModel()) {
                     }
 
                     selectedLocation?.let {
+                        val previewColor = RiskUtils.getCategoryColor(previewCategory)
+                        
                         Marker(
                             state = MarkerState(position = it),
                             title = if (zoneToEdit != null) "New Location for ${zoneToEdit!!.name}" else "Selected Location",
-                            snippet = "Click the button to save"
+                            snippet = "Risk: $previewCategory",
+                            icon = BitmapDescriptorFactory.defaultMarker(
+                                when (previewCategory) {
+                                    "Red" -> BitmapDescriptorFactory.HUE_RED
+                                    "Yellow" -> BitmapDescriptorFactory.HUE_YELLOW
+                                    else -> BitmapDescriptorFactory.HUE_AZURE
+                                }
+                            )
                         )
                         Circle(
                             center = it,
-                            radius = 100.0,
-                            fillColor = Color.Red.copy(alpha = 0.2f),
-                            strokeColor = Color.Red,
+                            radius = zoneRadius.toDouble(),
+                            fillColor = previewColor.copy(alpha = 0.2f),
+                            strokeColor = previewColor,
                             strokeWidth = 2f
                         )
                     }
@@ -165,7 +192,7 @@ fun TriggerMapScreen(viewModel: TriggerViewModel = viewModel()) {
                 // Fullscreen / Minimize Toggle
                 IconButton(
                     onClick = { isMapMaximized = !isMapMaximized },
-                    modifier = Modifier.align(Alignment.TopEnd).padding(8.dp),
+                    modifier = Modifier.align(Alignment.TopStart).padding(8.dp),
                     colors = IconButtonDefaults.iconButtonColors(containerColor = MaterialTheme.colorScheme.surface.copy(alpha = 0.7f))
                 ) {
                     Icon(
@@ -205,7 +232,10 @@ fun TriggerMapScreen(viewModel: TriggerViewModel = viewModel()) {
                     Text(
                         text = "My Trigger Zones",
                         style = MaterialTheme.typography.titleLarge,
-                        fontWeight = FontWeight.Bold
+                        fontWeight = FontWeight.Bold,
+                        modifier = Modifier.showcaseTarget("map_zones") { tag, rect ->
+                            authViewModel.updateShowcaseTarget(tag, rect)
+                        }
                     )
 
                     Spacer(modifier = Modifier.height(8.dp))
@@ -225,6 +255,7 @@ fun TriggerMapScreen(viewModel: TriggerViewModel = viewModel()) {
                                     onEdit = {
                                         zoneToEdit = it
                                         zoneName = it.name
+                                        zoneRadius = it.radius
                                         selectedLocation = LatLng(it.latitude, it.longitude)
                                         cameraPositionState.position = CameraPosition.fromLatLngZoom(
                                             LatLng(it.latitude, it.longitude), 15f
@@ -260,6 +291,16 @@ fun TriggerMapScreen(viewModel: TriggerViewModel = viewModel()) {
                             singleLine = true,
                             modifier = Modifier.fillMaxWidth()
                         )
+
+                        Spacer(modifier = Modifier.height(16.dp))
+
+                        Text("Radius: ${zoneRadius.toInt()} meters")
+                        Slider(
+                            value = zoneRadius,
+                            onValueChange = { zoneRadius = it },
+                            valueRange = 50f..300f,
+                            steps = 6 // 50, 100, 150... 300
+                        )
                     }
                 },
                 confirmButton = {
@@ -267,9 +308,9 @@ fun TriggerMapScreen(viewModel: TriggerViewModel = viewModel()) {
                         onClick = {
                             selectedLocation?.let {
                                 if (zoneToEdit != null) {
-                                    viewModel.updateTriggerZone(zoneToEdit!!.id, zoneToEdit!!.name, zoneName, it.latitude, it.longitude, 100f)
+                                    viewModel.updateTriggerZone(zoneToEdit!!.id, zoneToEdit!!.name, zoneName, it.latitude, it.longitude, zoneRadius)
                                 } else {
-                                    viewModel.saveTriggerZone(zoneName, it.latitude, it.longitude, 100f)
+                                    viewModel.saveTriggerZone(zoneName, it.latitude, it.longitude, zoneRadius)
                                 }
                             }
                             showDialog = false

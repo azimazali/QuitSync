@@ -124,12 +124,23 @@ class HomeViewModel : ViewModel() {
     private fun updateMonthlyStatus(entries: List<JournalEntry>) {
         val statusMap = mutableMapOf<Int, Status>()
         val maxDay = Calendar.getInstance().getActualMaximum(Calendar.DAY_OF_MONTH)
+        
+        // Initialize all days to NO_DATA (Grey) by default
         for (i in 1..maxDay) statusMap[i] = Status.NO_DATA
 
         for (entry in entries) {
             val day = Calendar.getInstance().apply { time = entry.timestamp ?: Date() }.get(Calendar.DAY_OF_MONTH)
-            if (entry.didSmoke) statusMap[day] = Status.SMOKED
-            else if (statusMap[day] != Status.SMOKED) statusMap[day] = Status.SMOKE_FREE
+            
+            when {
+                // If any entry on this day indicates smoking, it's definitely SMOKED (Red)
+                entry.didSmoke -> {
+                    statusMap[day] = Status.SMOKED
+                }
+                // If it's not already marked as SMOKED, and we have a "no smoke" entry, mark as SMOKE_FREE (Green)
+                statusMap[day] != Status.SMOKED -> {
+                    statusMap[day] = Status.SMOKE_FREE
+                }
+            }
         }
         _monthlyStatus.value = statusMap.map { DayStatus(it.key, it.value) }.sortedBy { it.dayOfMonth }
     }

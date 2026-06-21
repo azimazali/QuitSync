@@ -20,9 +20,23 @@ import com.example.quitsync.model.JournalEntry
 import com.example.quitsync.viewmodel.JournalViewModel
 import java.text.SimpleDateFormat
 import java.util.*
+import com.example.quitsync.ui.components.showcaseTarget
+import com.example.quitsync.viewmodel.AuthViewModel
+
+import androidx.compose.ui.platform.LocalContext
+import com.google.android.gms.maps.model.CameraPosition
+import com.google.android.gms.maps.model.LatLng
+import com.google.maps.android.compose.*
+import com.google.android.gms.location.LocationServices
+import android.Manifest
+import android.content.pm.PackageManager
+import androidx.core.content.ContextCompat
 
 @Composable
-fun JournalScreen(viewModel: JournalViewModel = viewModel()) {
+fun JournalScreen(
+    viewModel: JournalViewModel = viewModel(),
+    authViewModel: AuthViewModel = viewModel()
+) {
     val entries by viewModel.entries
     var showAddDialog by remember { mutableStateOf(false) }
     var entryToEdit by remember { mutableStateOf<JournalEntry?>(null) }
@@ -66,7 +80,10 @@ fun JournalScreen(viewModel: JournalViewModel = viewModel()) {
             onClick = { showAddDialog = true },
             modifier = Modifier
                 .align(Alignment.BottomEnd)
-                .padding(bottom = 16.dp, end = 16.dp),
+                .padding(bottom = 16.dp, end = 16.dp)
+                .showcaseTarget("journal_add") { tag, rect ->
+                    authViewModel.updateShowcaseTarget(tag, rect)
+                },
             containerColor = MaterialTheme.colorScheme.primary
         ) {
             Icon(Icons.Default.Add, contentDescription = "Add Entry")
@@ -76,8 +93,8 @@ fun JournalScreen(viewModel: JournalViewModel = viewModel()) {
             JournalEntryDialog(
                 title = "New Journal Entry",
                 onDismiss = { showAddDialog = false },
-                onSave = { text, smoked ->
-                    viewModel.saveJournalEntry(text, smoked)
+                onSave = { text, smoked, lat, lng ->
+                    viewModel.saveJournalEntry(text, smoked, lat, lng)
                     showAddDialog = false
                 }
             )
@@ -88,9 +105,11 @@ fun JournalScreen(viewModel: JournalViewModel = viewModel()) {
                 title = "Edit Entry",
                 initialText = entryToEdit!!.content,
                 initialSmoked = entryToEdit!!.didSmoke,
+                initialLat = entryToEdit!!.latitude,
+                initialLng = entryToEdit!!.longitude,
                 onDismiss = { entryToEdit = null },
-                onSave = { text, smoked ->
-                    viewModel.updateJournalEntry(entryToEdit!!.id, text, smoked)
+                onSave = { text, smoked, lat, lng ->
+                    viewModel.updateJournalEntry(entryToEdit!!.id, text, smoked, lat, lng)
                     entryToEdit = null
                 }
             )
@@ -135,7 +154,12 @@ fun JournalEntryItem(entry: JournalEntry, onEdit: (JournalEntry) -> Unit, onDele
 
             if (entry.didSmoke) {
                 Spacer(modifier = Modifier.height(8.dp))
-                Text(text = "⚠️ Smoked today", style = MaterialTheme.typography.labelSmall, color = Color.Red)
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Text(text = "⚠️ Smoked here", style = MaterialTheme.typography.labelSmall, color = Color.Red)
+                    if (entry.latitude != null && entry.longitude != null) {
+                        Icon(Icons.Default.LocationOn, contentDescription = "Location", modifier = Modifier.size(12.dp), tint = Color.Red)
+                    }
+                }
             }
         }
     }
@@ -169,11 +193,30 @@ fun JournalEntryDialog(
     title: String,
     initialText: String = "",
     initialSmoked: Boolean = false,
+    initialLat: Double? = null,
+    initialLng: Double? = null,
     onDismiss: () -> Unit,
-    onSave: (String, Boolean) -> Unit
+    onSave: (String, Boolean, Double?, Double?) -> Unit
 ) {
     var journalText by remember { mutableStateOf(initialText) }
     var didSmoke by remember { mutableStateOf(initialSmoked) }
+    var selectedLocation by remember { mutableStateOf(if (initialLat != null && initialLng != null) LatLng(initialLat, initialLng) else null) }
+    var showMapPicker by remember { mutableStateOf(false) }
+
+    val context = LocalContext.current
+    val fusedLocationClient = remember { LocationServices.getFusedLocationProviderClient(context) }
+
+    LaunchedEffect(didSmoke) {
+        if (didSmoke && (selectedLocation == null || initialLat == null)) {
+            if (ContextCompat.checkSelfPermission(context, Manifest.permission.ACCESS_FINE_LOCATION) == PackageManager.PERMISSION_GRANTED) {
+                fusedLocationClient.lastLocation.addOnSuccessListener { location ->
+                    if (location != null) {
+                        selectedLocation = LatLng(location.latitude, location.longitude)
+                    }
+                }
+            }
+        }
+    }
 
     Dialog(onDismissRequest = onDismiss) {
         Card(modifier = Modifier.fillMaxWidth().padding(16.dp), shape = MaterialTheme.shapes.large) {
@@ -192,14 +235,99 @@ fun JournalEntryDialog(
                     Checkbox(checked = didSmoke, onCheckedChange = { didSmoke = it })
                     Text(text = "I smoked today")
                 }
+                
+                if (didSmoke) {
+                    Spacer(modifier = Modifier.height(8.dp))
+                    OutlinedButton(
+                        onClick = { showMapPicker = true },
+                        modifier = Modifier.fillMaxWidth()
+                    ) {
+                        Icon(Icons.Default.PinDrop, contentDescription = null)
+                        Spacer(modifier = Modifier.width(8.dp))
+                        Text(if (selectedLocation != null) "Location Pinned" else "Pin Smoking Location")
+                    }
+                    if (selectedLocation != null) {
+                        Text(
+                            text = "Pinned: ${String.format("%.4f", selectedLocation!!.latitude)}, ${String.format("%.4f", selectedLocation!!.longitude)}",
+                            style = MaterialTheme.typography.labelSmall,
+                            modifier = Modifier.padding(start = 8.dp)
+                        )
+                    }
+                }
+
                 Spacer(modifier = Modifier.height(24.dp))
                 Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.End) {
                     TextButton(onClick = onDismiss) { Text("Cancel") }
                     Spacer(modifier = Modifier.width(8.dp))
                     Button(
-                        onClick = { if (journalText.isNotBlank()) onSave(journalText, didSmoke) },
+                        onClick = { 
+                            if (journalText.isNotBlank()) {
+                                onSave(journalText, didSmoke, selectedLocation?.latitude, selectedLocation?.longitude)
+                            }
+                        },
                         enabled = journalText.isNotBlank()
                     ) { Text("Save") }
+                }
+            }
+        }
+    }
+
+    if (showMapPicker) {
+        LocationPickerDialog(
+            initialLocation = selectedLocation,
+            onDismiss = { showMapPicker = false },
+            onLocationSelected = {
+                selectedLocation = it
+                showMapPicker = false
+            }
+        )
+    }
+}
+
+@Composable
+fun LocationPickerDialog(
+    initialLocation: LatLng?,
+    onDismiss: () -> Unit,
+    onLocationSelected: (LatLng) -> Unit
+) {
+    var tempLocation by remember { mutableStateOf(initialLocation ?: LatLng(1.3521, 103.8198)) }
+    val cameraPositionState = rememberCameraPositionState {
+        position = CameraPosition.fromLatLngZoom(tempLocation, 12f)
+    }
+
+    Dialog(onDismissRequest = onDismiss) {
+        Card(
+            modifier = Modifier.fillMaxWidth().height(500.dp),
+            shape = MaterialTheme.shapes.large
+        ) {
+            Column {
+                Box(modifier = Modifier.weight(1f)) {
+                    GoogleMap(
+                        modifier = Modifier.fillMaxSize(),
+                        cameraPositionState = cameraPositionState,
+                        onMapClick = { tempLocation = it }
+                    ) {
+                        Marker(
+                            state = MarkerState(position = tempLocation),
+                            title = "Smoking Place"
+                        )
+                    }
+                    Text(
+                        "Tap to pin where you smoked",
+                        modifier = Modifier.align(Alignment.TopCenter).padding(8.dp).padding(top = 8.dp),
+                        style = MaterialTheme.typography.bodySmall,
+                        color = Color.Black
+                    )
+                }
+                Row(
+                    modifier = Modifier.fillMaxWidth().padding(16.dp),
+                    horizontalArrangement = Arrangement.End
+                ) {
+                    TextButton(onClick = onDismiss) { Text("Cancel") }
+                    Spacer(modifier = Modifier.width(8.dp))
+                    Button(onClick = { onLocationSelected(tempLocation) }) {
+                        Text("Confirm Pin")
+                    }
                 }
             }
         }

@@ -10,5 +10,7 @@ data class JournalEntry(
     val content: String = "",
     val sentiment: String = "Neutral",
     val didSmoke: Boolean = false,
+    val latitude: Double? = null,
+    val longitude: Double? = null,
     @ServerTimestamp val timestamp: Date? = null
 )

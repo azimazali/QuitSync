@@ -20,10 +20,13 @@ import com.example.quitsync.viewmodel.CommunityViewModel
 import com.example.quitsync.viewmodel.CommunityUiState
 import com.example.quitsync.model.Post
 import com.example.quitsync.model.Comment
+import com.example.quitsync.ui.components.showcaseTarget
+import com.example.quitsync.viewmodel.AuthViewModel
 
 @Composable
 fun CommunityScreen(
     viewModel: CommunityViewModel = viewModel(),
+    authViewModel: AuthViewModel = viewModel(),
     onNavigateToSettings: () -> Unit
 ) {
     val posts by viewModel.posts
@@ -44,7 +47,12 @@ fun CommunityScreen(
     Scaffold(
         snackbarHost = { SnackbarHost(snackbarHostState) },
         floatingActionButton = {
-            FloatingActionButton(onClick = { showCreatePostDialog = true }) {
+            FloatingActionButton(
+                onClick = { showCreatePostDialog = true },
+                modifier = Modifier.showcaseTarget("community_post") { tag, rect ->
+                    authViewModel.updateShowcaseTarget(tag, rect)
+                }
+            ) {
                 Icon(Icons.Default.Add, contentDescription = "Create Post")
             }
         }
