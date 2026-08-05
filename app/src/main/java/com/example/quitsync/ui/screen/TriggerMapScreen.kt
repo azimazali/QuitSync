@@ -25,6 +25,7 @@ import com.example.quitsync.model.TriggerZone
 import com.example.quitsync.util.RiskUtils
 import com.example.quitsync.viewmodel.TriggerUiState
 import com.example.quitsync.viewmodel.TriggerViewModel
+import com.google.android.gms.location.LocationServices
 import com.google.android.gms.maps.model.BitmapDescriptorFactory
 import com.google.android.gms.maps.model.CameraPosition
 import com.google.android.gms.maps.model.LatLng
@@ -44,6 +45,7 @@ fun TriggerMapScreen(
 
     var isMapMaximized by remember { mutableStateOf(false) }
     var zoneToEdit by remember { mutableStateOf<TriggerZone?>(null) }
+    var zoneToDelete by remember { mutableStateOf<TriggerZone?>(null) }
 
     // Permissions logic
     var hasFineLocationPermission by remember {
@@ -74,9 +76,34 @@ fun TriggerMapScreen(
         hasBackgroundLocationPermission = isGranted
     }
 
+    val fusedLocationClient = remember { LocationServices.getFusedLocationProviderClient(context) }
+
     val startLocation = LatLng(1.3521, 103.8198)
     val cameraPositionState = rememberCameraPositionState {
         position = CameraPosition.fromLatLngZoom(startLocation, 12f)
+    }
+
+    LaunchedEffect(Unit) {
+        if (!hasFineLocationPermission) {
+            launcher.launch(arrayOf(Manifest.permission.ACCESS_FINE_LOCATION, Manifest.permission.ACCESS_COARSE_LOCATION))
+        }
+    }
+
+    LaunchedEffect(hasFineLocationPermission) {
+        if (hasFineLocationPermission) {
+            try {
+                fusedLocationClient.lastLocation.addOnSuccessListener { location ->
+                    if (location != null) {
+                        cameraPositionState.position = CameraPosition.fromLatLngZoom(
+                            LatLng(location.latitude, location.longitude),
+                            15f
+                        )
+                    }
+                }
+            } catch (e: SecurityException) {
+                // Permission might have been revoked dynamically
+            }
+        }
     }
 
     var selectedLocation by remember { mutableStateOf<LatLng?>(null) }
@@ -120,7 +147,8 @@ fun TriggerMapScreen(
                     Icon(if (zoneToEdit != null) Icons.Default.Check else Icons.Default.Add, contentDescription = "Save Trigger Zone")
                 }
             }
-        }
+        },
+        floatingActionButtonPosition = FabPosition.Start
     ) { padding ->
         Column(modifier = Modifier.padding(padding).fillMaxSize()) {
 
@@ -141,8 +169,6 @@ fun TriggerMapScreen(
                         if (zone.id != zoneToEdit?.id) {
                             val zoneColor = RiskUtils.getCategoryColor(zone.category)
 
-                            val adjustedRadius = zone.radius * (1.0f + (viewModel.desirePercentage.value / 100.0f))
-
                             Marker(
                                 state = MarkerState(position = LatLng(zone.latitude, zone.longitude)),
                                 title = zone.name,
@@ -156,7 +182,7 @@ fun TriggerMapScreen(
                             )
                             Circle(
                                 center = LatLng(zone.latitude, zone.longitude),
-                                radius = adjustedRadius.toDouble(),
+                                radius = zone.radius.toDouble(),
                                 fillColor = zoneColor.copy(alpha = 0.1f),
                                 strokeColor = zoneColor.copy(alpha = 0.5f),
                                 strokeWidth = 2f
@@ -166,7 +192,7 @@ fun TriggerMapScreen(
 
                     selectedLocation?.let {
                         val previewColor = RiskUtils.getCategoryColor(previewCategory)
-                        
+
                         Marker(
                             state = MarkerState(position = it),
                             title = if (zoneToEdit != null) "New Location for ${zoneToEdit!!.name}" else "Selected Location",
@@ -262,7 +288,7 @@ fun TriggerMapScreen(
                                         )
                                         isMapMaximized = true // Go to map to edit position
                                     },
-                                    onDelete = { viewModel.deleteTriggerZone(it) },
+                                    onDelete = { zoneToDelete = it },
                                     onLocate = {
                                         cameraPositionState.position = CameraPosition.fromLatLngZoom(
                                             LatLng(zone.latitude, zone.longitude), 15f
@@ -322,7 +348,33 @@ fun TriggerMapScreen(
                     }
                 },
                 dismissButton = {
-                    TextButton(onClick = { showDialog = false }) { Text("Cancel") }
+                    TextButton(onClick = { showDialog = false }) { Text(text = "Cancel", fontWeight = FontWeight.Black) }
+                }
+            )
+        }
+
+        if (zoneToDelete != null) {
+            AlertDialog(
+                onDismissRequest = { zoneToDelete = null },
+                title = { Text("Delete Trigger Zone") },
+                text = { Text("Are you sure you want to delete the trigger zone '${zoneToDelete?.name}'? This action cannot be undone.") },
+                confirmButton = {
+                    Button(
+                        onClick = {
+                            zoneToDelete?.let {
+                                viewModel.deleteTriggerZone(it)
+                            }
+                            zoneToDelete = null
+                        },
+                        colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.error)
+                    ) {
+                        Text("Delete")
+                    }
+                },
+                dismissButton = {
+                    TextButton(onClick = { zoneToDelete = null }) {
+                        Text("Cancel")
+                    }
                 }
             )
         }

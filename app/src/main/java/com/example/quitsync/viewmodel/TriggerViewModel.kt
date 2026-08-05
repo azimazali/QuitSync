@@ -35,9 +35,6 @@ class TriggerViewModel(application: Application) : AndroidViewModel(application)
     private val _userCategory = mutableStateOf("")
     val userCategory: State<String> = _userCategory
 
-    private val _desirePercentage = mutableStateOf(0)
-    val desirePercentage: State<Int> = _desirePercentage
-
     private var hotspotListener: ListenerRegistration? = null
 
     init {
@@ -90,7 +87,6 @@ class TriggerViewModel(application: Application) : AndroidViewModel(application)
         db.collection("users").document(userId).addSnapshotListener { snapshot, _ ->
             if (snapshot != null && snapshot.exists()) {
                 _userCategory.value = snapshot.getString("nicotineDependenceCategory") ?: ""
-                _desirePercentage.value = snapshot.getLong("desirePercentage")?.toInt() ?: 0
             }
         }
     }
@@ -221,7 +217,7 @@ class TriggerViewModel(application: Application) : AndroidViewModel(application)
                 .add(zone)
                 .addOnSuccessListener {
                     try {
-                        geofenceManager.addGeofence(zone, _desirePercentage.value)
+                        geofenceManager.addGeofence(zone)
                         _uiState.value = TriggerUiState.Success
                     } catch (e: Exception) {
                         Log.e("TriggerViewModel", "Geofence error", e)
@@ -289,7 +285,7 @@ class TriggerViewModel(application: Application) : AndroidViewModel(application)
                     try {
                         geofenceManager.removeGeofence(oldName)
                         val newZone = TriggerZone(id = zoneId, name = name, latitude = lat, longitude = lng, radius = radius, category = category)
-                        geofenceManager.addGeofence(newZone, _desirePercentage.value)
+                        geofenceManager.addGeofence(newZone)
                         _uiState.value = TriggerUiState.Success
                     } catch (e: Exception) {
                         _uiState.value = TriggerUiState.Error("Updated in DB, but failed to update device alert.")

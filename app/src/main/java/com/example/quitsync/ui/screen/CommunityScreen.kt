@@ -33,8 +33,12 @@ fun CommunityScreen(
     val commentsMap by viewModel.commentsMap
     val currentUserId = viewModel.currentUserId
     val uiState by viewModel.uiState
+    val currentUserRole by authViewModel.currentUserRole
+    val isAdmin = currentUserRole == "admin"
+
     var showCreatePostDialog by remember { mutableStateOf(false) }
     var postToEdit by remember { mutableStateOf<Post?>(null) }
+    var postToDelete by remember { mutableStateOf<Post?>(null) }
     val snackbarHostState = remember { SnackbarHostState() }
 
     LaunchedEffect(uiState) {
@@ -76,9 +80,10 @@ fun CommunityScreen(
                         post = post,
                         comments = commentsMap[post.id] ?: emptyList(),
                         isOwnPost = post.userId == currentUserId,
+                        isAdmin = isAdmin,
                         currentUserId = currentUserId,
                         onEdit = { postToEdit = it },
-                        onDelete = { viewModel.deletePost(it.id) },
+                        onDelete = { postToDelete = it },
                         onLike = { viewModel.toggleLike(post) },
                         onAddComment = { content -> viewModel.addComment(post.id, content) }
                     )
@@ -115,6 +120,30 @@ fun CommunityScreen(
             }
         )
     }
+
+    postToDelete?.let { post ->
+        AlertDialog(
+            onDismissRequest = { postToDelete = null },
+            title = { Text("Delete Post") },
+            text = { Text("Are you sure you want to delete this post? This action cannot be undone.") },
+            confirmButton = {
+                Button(
+                    onClick = {
+                        viewModel.deletePost(post.id)
+                        postToDelete = null
+                    },
+                    colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.error)
+                ) {
+                    Text("Delete")
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = { postToDelete = null }) {
+                    Text("Cancel")
+                }
+            }
+        )
+    }
 }
 
 @Composable
@@ -122,6 +151,7 @@ fun PostItem(
     post: Post,
     comments: List<Comment>,
     isOwnPost: Boolean,
+    isAdmin: Boolean,
     currentUserId: String?,
     onEdit: (Post) -> Unit,
     onDelete: (Post) -> Unit,
@@ -143,14 +173,16 @@ fun PostItem(
                 verticalAlignment = Alignment.Top
             ) {
                 Column(modifier = Modifier.weight(1f)) {
-                    Text(text = post.userName, style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.primary)
+                    Text(text = post.username, style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.primary)
                     Text(text = post.title, style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold)
                 }
 
-                if (isOwnPost) {
+                if (isOwnPost || isAdmin) {
                     Row {
-                        IconButton(onClick = { onEdit(post) }, modifier = Modifier.size(32.dp)) {
-                            Icon(Icons.Default.Edit, contentDescription = "Edit", modifier = Modifier.size(18.dp))
+                        if (isOwnPost) {
+                            IconButton(onClick = { onEdit(post) }, modifier = Modifier.size(32.dp)) {
+                                Icon(Icons.Default.Edit, contentDescription = "Edit", modifier = Modifier.size(18.dp))
+                            }
                         }
                         IconButton(onClick = { onDelete(post) }, modifier = Modifier.size(32.dp)) {
                             Icon(Icons.Default.Delete, contentDescription = "Delete", modifier = Modifier.size(18.dp), tint = Color.Red)
@@ -182,7 +214,7 @@ fun PostItem(
 
             comments.forEach { comment ->
                 Column(modifier = Modifier.padding(top = 8.dp, start = 8.dp)) {
-                    Text(text = comment.userName, style = MaterialTheme.typography.labelSmall, fontWeight = FontWeight.Bold)
+                    Text(text = comment.username, style = MaterialTheme.typography.labelSmall, fontWeight = FontWeight.Bold)
                     Text(text = comment.content, style = MaterialTheme.typography.bodySmall)
                 }
             }

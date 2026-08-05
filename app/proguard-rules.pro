@@ -19,3 +19,7 @@
 # If you keep the line number information, uncomment this to
 # hide the original source file name.
 #-renamesourcefileattribute SourceFile
+
+# Keep Firebase model classes to prevent R8/ProGuard obfuscation from breaking Firestore deserialization
+-keep class com.example.quitsync.model.** { *; }
+-keepattributes *Annotation*,Signature,InnerClasses

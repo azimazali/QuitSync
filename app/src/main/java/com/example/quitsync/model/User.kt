@@ -5,6 +5,7 @@ import java.util.Date
 
 data class User(
     val uid: String = "",
+    val username: String = "",
     val email: String = "",
     val role: String = "user",
     val cigarettePrice: Double = 0.0, // Price per pack (e.g., RM 17.50)
@@ -14,7 +15,6 @@ data class User(
     val nicotineDependenceScore: Int = 0,
     val nicotineDependenceCategory: String = "",
     val goals: List<String> = emptyList(),
-    val desirePercentage: Int = 0,
     val hasCompletedSetup: Boolean = false,
     val hasSeenTour: Boolean = false
 )

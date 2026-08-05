@@ -9,13 +9,8 @@ import android.os.Build
 import android.util.Log
 import androidx.core.app.NotificationCompat
 import androidx.core.app.NotificationManagerCompat
-import com.example.quitsync.util.RiskUtils
 import com.google.android.gms.location.Geofence
 import com.google.android.gms.location.GeofencingEvent
-import com.google.android.libraries.places.api.Places
-import com.google.android.libraries.places.api.model.Place
-import com.google.android.libraries.places.api.net.FetchPlaceRequest
-import com.google.android.libraries.places.api.net.FindCurrentPlaceRequest
 import com.google.firebase.auth.FirebaseAuth
 import com.google.firebase.firestore.FirebaseFirestore
 
@@ -28,112 +23,117 @@ class GeofenceBroadcastReceiver : BroadcastReceiver() {
             return
         }
 
-        val geofenceTransition = geofenceTransition(geofencingEvent)
+        val geofenceTransition = geofencingEvent.geofenceTransition
 
-        if (geofenceTransition == Geofence.GEOFENCE_TRANSITION_ENTER) {
+        if (geofenceTransition == Geofence.GEOFENCE_TRANSITION_ENTER || geofenceTransition == Geofence.GEOFENCE_TRANSITION_DWELL) {
             val pendingResult = goAsync()
             val userId = FirebaseAuth.getInstance().currentUser?.uid ?: run {
                 pendingResult.finish()
                 return
             }
 
-            // Detect social risk using the new Places API logic
-            detectSocialRisk(context) { category, score ->
-                // First, fetch user dependence category to determine the primary message
-                FirebaseFirestore.getInstance().collection("users").document(userId).get()
-                    .addOnSuccessListener { userDoc ->
-                        val userDependence = userDoc.getString("nicotineDependenceCategory") ?: ""
-                        val isHighDependence = userDependence.equals("High Dependence", ignoreCase = true)
-
-                        // Database Integration: Save the last_visited_risk_level to the user's document
-                        FirebaseFirestore.getInstance().collection("users").document(userId)
-                            .update("last_visited_risk_level", category)
-                            .addOnCompleteListener {
-                                // Risk Assignment & Notification
-                                val message = if (isHighDependence) {
-                                    "High Risk Area: Stay strong!"
-                                } else {
-                                    when (category) {
-                                        "Red" -> "High-risk social area detected! Take a deep breath."
-                                        "Orange" -> "Warning: Increased risk in this area."
-                                        else -> "You've entered a trigger zone."
-                                    }
-                                }
-                                sendNotification(context, message)
-                                pendingResult.finish()
-                            }
+            // Get triggering location or fallback to last location provider
+            val location = geofencingEvent.triggeringLocation
+            if (location != null) {
+                processLocationRisk(context, userId, location.latitude, location.longitude, geofenceTransition, pendingResult)
+            } else {
+                val fusedLocationClient = com.google.android.gms.location.LocationServices.getFusedLocationProviderClient(context)
+                try {
+                    fusedLocationClient.lastLocation.addOnSuccessListener { lastLoc ->
+                        if (lastLoc != null) {
+                            processLocationRisk(context, userId, lastLoc.latitude, lastLoc.longitude, geofenceTransition, pendingResult)
+                        } else {
+                            pendingResult.finish()
+                        }
+                    }.addOnFailureListener {
+                        pendingResult.finish()
                     }
-            }        }
-    }
-
-    private fun detectSocialRisk(context: Context, callback: (String, Int) -> Unit) {
-        val db = FirebaseFirestore.getInstance()
-        
-        // 1. Get current location from geofencing event is tricky, but we can use the Last Location
-        val fusedLocationClient = com.google.android.gms.location.LocationServices.getFusedLocationProviderClient(context)
-        
-        try {
-            fusedLocationClient.lastLocation.addOnSuccessListener { location ->
-                if (location == null) {
-                    callback("Blue", 0)
-                    return@addOnSuccessListener
+                } catch (e: SecurityException) {
+                    pendingResult.finish()
                 }
-
-                val lat = location.latitude
-                val lng = location.longitude
-
-                // Logic: Categorize based on shared journal data
-                db.collection("journals")
-                    .whereEqualTo("didSmoke", true)
-                    .get()
-                    .addOnSuccessListener { smokingJournals ->
-                        val allSmokers = smokingJournals.documents.mapNotNull { it.getString("userId") }.toSet()
-                        val totalSmokerCount = allSmokers.size
-
-                        if (totalSmokerCount == 0) {
-                            callback("Blue", 0)
-                            return@addOnSuccessListener
-                        }
-
-                        // Count unique users who smoked near this location (within ~100 meters)
-                        val nearSmokers = smokingJournals.documents.filter { doc ->
-                            val jLat = doc.getDouble("latitude")
-                            val jLng = doc.getDouble("longitude")
-                            if (jLat != null && jLng != null) {
-                                calculateDistance(lat, lng, jLat, jLng) <= 100
-                            } else {
-                                false
-                            }
-                        }.mapNotNull { it.getString("userId") }.toSet()
-                        
-                        val nearSmokerCount = nearSmokers.size
-                        val percentage = (nearSmokerCount.toFloat() / totalSmokerCount.toFloat()) * 100
-
-                        val category = when {
-                            percentage >= 70 -> "Red"
-                            percentage >= 40 -> "Orange"
-                            else -> "Blue"
-                        }
-                        
-                        callback(category, nearSmokerCount)
-                    }
-                    .addOnFailureListener {
-                        callback("Blue", 0)
-                    }
             }
-        } catch (e: SecurityException) {
-            callback("Blue", 0)
         }
     }
 
-    private fun calculateDistance(lat1: Double, lng1: Double, lat2: Double, lng2: Double): Float {
-        val results = FloatArray(1)
-        android.location.Location.distanceBetween(lat1, lng1, lat2, lng2, results)
-        return results[0]
+    private fun processLocationRisk(
+        context: Context,
+        userId: String,
+        latitude: Double,
+        longitude: Double,
+        transitionType: Int,
+        pendingResult: PendingResult
+    ) {
+        val db = FirebaseFirestore.getInstance()
+
+        // 1. Discretize coordinates to 3-decimal places for shared ~110m grid
+        val latRounded = String.format(java.util.Locale.US, "%.3f", latitude)
+        val lngRounded = String.format(java.util.Locale.US, "%.3f", longitude)
+        val docId = "${latRounded}_${lngRounded}".replace(".", "_")
+
+        val hotspotRef = db.collection("smoking_hotspots").document(docId)
+
+        // 2. Perform direct look-up query in smoking_hotspots with cache fallback for Doze mode
+        hotspotRef.get().addOnSuccessListener { documentSnapshot ->
+            handleHotspotEvaluation(context, userId, documentSnapshot.getLong("unique_smokers_count")?.toInt() ?: 0, transitionType, pendingResult)
+        }.addOnFailureListener {
+            // Attempt to read cached data if network is throttled in Doze mode
+            hotspotRef.get(com.google.firebase.firestore.Source.CACHE).addOnSuccessListener { documentSnapshot ->
+                handleHotspotEvaluation(context, userId, documentSnapshot.getLong("unique_smokers_count")?.toInt() ?: 0, transitionType, pendingResult)
+            }.addOnFailureListener { e ->
+                Log.e("GeofenceReceiver", "Failed to fetch hotspot data from server and cache", e)
+                pendingResult.finish()
+            }
+        }
     }
 
-    private fun geofenceTransition(event: GeofencingEvent): Int {
-        return event.geofenceTransition
+    private fun handleHotspotEvaluation(
+        context: Context,
+        userId: String,
+        uniqueSmokersCount: Int,
+        transitionType: Int,
+        pendingResult: PendingResult
+    ) {
+        val db = FirebaseFirestore.getInstance()
+
+        // 3. Risk assignment via the absolute threshold matrix
+        val category = when {
+            uniqueSmokersCount >= 3 -> "Red"
+            uniqueSmokersCount == 2 -> "Yellow"
+            else -> "Blue"
+        }
+
+        // 4. Save the last_visited_risk_level to user profile
+        db.collection("users").document(userId)
+            .update("last_visited_risk_level", category)
+            .addOnCompleteListener {
+                val isDwell = transitionType == Geofence.GEOFENCE_TRANSITION_DWELL
+
+                // 5. Construct notification message based on risk category and transition event
+                val message = when (category) {
+                    "Red" -> {
+                        if (isDwell) {
+                            "URGENT: You have lingered in an active smoking trigger zone! Open urge management helper immediately."
+                        } else {
+                            "High-risk active smoking trigger zone entered! Take a deep breath."
+                        }
+                    }
+                    "Yellow" -> {
+                        if (isDwell) {
+                            "Warning: Emerging environmental risk. Try some distraction alternatives."
+                        } else {
+                            "Warning: Moderate environmental smoking risks nearby."
+                        }
+                    }
+                    else -> null // Blue/Baseline State: Silent logging to user history profile
+                }
+
+                if (message != null) {
+                    sendNotification(context, message)
+                } else {
+                    Log.d("GeofenceReceiver", "Risk category is Blue ($uniqueSmokersCount smokers). Silent logging completed, no notification sent.")
+                }
+                pendingResult.finish()
+            }
     }
 
     private fun sendNotification(context: Context, message: String) {

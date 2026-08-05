@@ -7,7 +7,7 @@ data class Comment(
     val id: String = "",
     val postId: String = "",
     val userId: String = "",
-    val userName: String = "Anonymous",
+    val username: String = "Anonymous",
     val content: String = "",
     @ServerTimestamp val timestamp: Date? = null
 )

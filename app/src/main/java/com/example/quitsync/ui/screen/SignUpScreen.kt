@@ -25,6 +25,7 @@ import com.google.firebase.auth.GoogleAuthProvider
 
 @Composable
 fun SignUpScreen(viewModel: AuthViewModel = viewModel(), onSignUpSuccess: () -> Unit) {
+    var username by remember { mutableStateOf("")}
     var email by remember { mutableStateOf("")}
     var password by remember { mutableStateOf("")}
     var errorMessage by remember { mutableStateOf<String?>(null)}
@@ -32,16 +33,24 @@ fun SignUpScreen(viewModel: AuthViewModel = viewModel(), onSignUpSuccess: () -> 
 
     val context = LocalContext.current
     val token = "251580804646-memvfv6t043mt4i1vipagotddcsr5qsm.apps.googleusercontent.com"
+    val usernameFocusRequester = remember { FocusRequester() }
+    val emailFocusRequester = remember { FocusRequester() }
     val passwordFocusRequester = remember { FocusRequester() }
 
     val handleSignUp = {
-        isLoading = true
-        viewModel.signUp(email, password) { success, error ->
-            if (success) {
-                onSignUpSuccess()
-            } else {
-                isLoading = false
-                errorMessage = error
+        val trimmedUsername = username.trim()
+        if (trimmedUsername.isEmpty()) {
+            errorMessage = "Username cannot be empty."
+        } else {
+            isLoading = true
+            errorMessage = null
+            viewModel.signUp(trimmedUsername, email, password) { success, error ->
+                if (success) {
+                    onSignUpSuccess()
+                } else {
+                    isLoading = false
+                    errorMessage = error
+                }
             }
         }
     }
@@ -90,10 +99,21 @@ fun SignUpScreen(viewModel: AuthViewModel = viewModel(), onSignUpSuccess: () -> 
             Spacer(modifier = Modifier.height(32.dp))
 
             OutlinedTextField(
+                value = username,
+                onValueChange = { username = it },
+                label = { Text("Username")},
+                modifier = Modifier.fillMaxWidth().focusRequester(usernameFocusRequester),
+                keyboardOptions = KeyboardOptions(imeAction = ImeAction.Next),
+                keyboardActions = KeyboardActions(onNext = { emailFocusRequester.requestFocus() })
+            )
+
+            Spacer(modifier = Modifier.height(12.dp))
+
+            OutlinedTextField(
                 value = email,
                 onValueChange = { email = it },
                 label = { Text("Email")},
-                modifier = Modifier.fillMaxWidth(),
+                modifier = Modifier.fillMaxWidth().focusRequester(emailFocusRequester),
                 keyboardOptions = KeyboardOptions(imeAction = ImeAction.Next),
                 keyboardActions = KeyboardActions(onNext = { passwordFocusRequester.requestFocus() })
             )

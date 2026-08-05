@@ -7,7 +7,7 @@ import java.util.Date
 data class Post(
     @DocumentId val id: String = "",
     val userId: String = "",
-    val userName: String = "Anonymous",
+    val username: String = "Anonymous",
     val title: String = "",
     val description: String = "",
     val likedBy: List<String> = emptyList(),

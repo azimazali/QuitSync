@@ -73,18 +73,38 @@ class CommunityViewModel : ViewModel() {
 
     fun createPost(title: String, description: String) {
         val user = auth.currentUser ?: return
-        val docRef = db.collection("forum_posts").document()
-        val post = Post(
-            id = docRef.id,
-            userId = user.uid,
-            userName = user.email?.substringBefore("@") ?: "User",
-            title = title,
-            description = description
-        )
+        db.collection("users").document(user.uid).get()
+            .addOnSuccessListener { document ->
+                val username = document.getString("username") ?: user.email?.substringBefore("@") ?: "User"
+                val docRef = db.collection("forum_posts").document()
+                val post = Post(
+                    id = docRef.id,
+                    userId = user.uid,
+                    username = username,
+                    title = title,
+                    description = description
+                )
 
-        docRef.set(post)
+                docRef.set(post)
+                    .addOnFailureListener { e ->
+                        _uiState.value = CommunityUiState.Error("Post failed: ${e.localizedMessage}")
+                    }
+            }
             .addOnFailureListener { e ->
-                _uiState.value = CommunityUiState.Error("Post failed: ${e.localizedMessage}")
+                Log.e("CommunityViewModel", "Failed to fetch user profile for post", e)
+                val username = user.email?.substringBefore("@") ?: "User"
+                val docRef = db.collection("forum_posts").document()
+                val post = Post(
+                    id = docRef.id,
+                    userId = user.uid,
+                    username = username,
+                    title = title,
+                    description = description
+                )
+                docRef.set(post)
+                    .addOnFailureListener { err ->
+                        _uiState.value = CommunityUiState.Error("Post failed: ${err.localizedMessage}")
+                    }
             }
     }
 
@@ -107,19 +127,40 @@ class CommunityViewModel : ViewModel() {
 
     fun addComment(postId: String, content: String) {
         val user = auth.currentUser ?: return
-        val docRef = db.collection("forum_posts").document(postId).collection("comments").document()
-        val comment = Comment(
-            id = docRef.id,
-            postId = postId,
-            userId = user.uid,
-            userName = user.email?.substringBefore("@") ?: "User",
-            content = content
-        )
+        db.collection("users").document(user.uid).get()
+            .addOnSuccessListener { document ->
+                val username = document.getString("username") ?: user.email?.substringBefore("@") ?: "User"
+                val docRef = db.collection("forum_posts").document(postId).collection("comments").document()
+                val comment = Comment(
+                    id = docRef.id,
+                    postId = postId,
+                    userId = user.uid,
+                    username = username,
+                    content = content
+                )
 
-        docRef.set(comment)
+                docRef.set(comment)
+                    .addOnFailureListener { e ->
+                        Log.e("CommunityViewModel", "Comment failed: ${e.message}")
+                        _uiState.value = CommunityUiState.Error("Could not add comment. Check rules.")
+                    }
+            }
             .addOnFailureListener { e ->
-                Log.e("CommunityViewModel", "Comment failed: ${e.message}")
-                _uiState.value = CommunityUiState.Error("Could not add comment. Check rules.")
+                Log.e("CommunityViewModel", "Failed to fetch user profile for comment", e)
+                val username = user.email?.substringBefore("@") ?: "User"
+                val docRef = db.collection("forum_posts").document(postId).collection("comments").document()
+                val comment = Comment(
+                    id = docRef.id,
+                    postId = postId,
+                    userId = user.uid,
+                    username = username,
+                    content = content
+                )
+                docRef.set(comment)
+                    .addOnFailureListener { err ->
+                        Log.e("CommunityViewModel", "Comment failed: ${err.message}")
+                        _uiState.value = CommunityUiState.Error("Could not add comment. Check rules.")
+                    }
             }
     }
 

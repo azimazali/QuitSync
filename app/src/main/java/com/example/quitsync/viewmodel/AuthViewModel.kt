@@ -10,6 +10,7 @@ import androidx.compose.runtime.mutableStateMapOf
 import androidx.compose.runtime.State
 import com.example.quitsync.model.User
 import com.google.firebase.firestore.FirebaseFirestore
+import com.google.firebase.firestore.FieldValue
 import com.google.firebase.firestore.ListenerRegistration
 import com.google.firebase.firestore.SetOptions
 import com.google.android.gms.tasks.Tasks
@@ -75,45 +76,65 @@ class AuthViewModel : ViewModel() {
         }
     }
 
-    fun signUp(email: String, password: String, onResult: (Boolean, String?) -> Unit) {
+    fun signUp(username: String, email: String, password: String, onResult: (Boolean, String?) -> Unit) {
+        val trimmedUsername = username.trim()
+        if (trimmedUsername.isEmpty()) {
+            onResult(false, "Username cannot be empty.")
+            return
+        }
         val trimmedEmail = email.trim()
         if (trimmedEmail.isEmpty()) {
             onResult(false, "Email address cannot be empty.")
             return
         }
 
-        Log.d("AuthViewModel", "Attempting signUp for: $trimmedEmail")
-        auth.createUserWithEmailAndPassword(trimmedEmail, password)
-            .addOnCompleteListener { task ->
-                if (task.isSuccessful) {
-                    val firebaseUser = auth.currentUser
-                    if (firebaseUser != null) {
-                        val newUser = User(
-                            uid = firebaseUser.uid,
-                            email = trimmedEmail,
-                            role = "user",
-                            cigarettePrice = 0.0,
-                            dailyCigarettes = 10,
-                            cigarettesPerPack = 20,
-                            quitDate = Date()
-                        )
-                        db.collection("users").document(firebaseUser.uid).set(newUser)
-                            .addOnSuccessListener {
-                                Log.d("AuthViewModel", "User profile created successfully in Firestore")
-                                _isUserLoggedIn.value = true
-                                fetchCurrentUserData()
-                                onResult(true, null)
-                            }
-                            .addOnFailureListener { e ->
-                                Log.e("AuthViewModel", "Failed to create Firestore profile", e)
-                                onResult(false, "Failed to create profile: ${e.message}")
-                            }
-                    }
+        Log.d("AuthViewModel", "Checking username uniqueness: $trimmedUsername")
+        db.collection("users")
+            .whereEqualTo("username", trimmedUsername)
+            .get()
+            .addOnSuccessListener { querySnapshot ->
+                if (!querySnapshot.isEmpty) {
+                    onResult(false, "Username is already taken.")
                 } else {
-                    val exception = task.exception
-                    Log.e("AuthViewModel", "signUp failed", exception)
-                    onResult(false, exception?.message)
+                    Log.d("AuthViewModel", "Attempting signUp for: $trimmedEmail")
+                    auth.createUserWithEmailAndPassword(trimmedEmail, password)
+                        .addOnCompleteListener { task ->
+                            if (task.isSuccessful) {
+                                val firebaseUser = auth.currentUser
+                                if (firebaseUser != null) {
+                                    val newUser = User(
+                                        uid = firebaseUser.uid,
+                                        username = trimmedUsername,
+                                        email = trimmedEmail,
+                                        role = "user",
+                                        cigarettePrice = 0.0,
+                                        dailyCigarettes = 10,
+                                        cigarettesPerPack = 20,
+                                        quitDate = Date()
+                                    )
+                                    db.collection("users").document(firebaseUser.uid).set(newUser)
+                                        .addOnSuccessListener {
+                                            Log.d("AuthViewModel", "User profile created successfully in Firestore")
+                                            _isUserLoggedIn.value = true
+                                            fetchCurrentUserData()
+                                            onResult(true, null)
+                                        }
+                                        .addOnFailureListener { e ->
+                                            Log.e("AuthViewModel", "Failed to create Firestore profile", e)
+                                            onResult(false, "Failed to create profile: ${e.message}")
+                                        }
+                                }
+                            } else {
+                                val exception = task.exception
+                                Log.e("AuthViewModel", "signUp failed", exception)
+                                onResult(false, exception?.message)
+                            }
+                        }
                 }
+            }
+            .addOnFailureListener { e ->
+                Log.e("AuthViewModel", "Failed to check username uniqueness", e)
+                onResult(false, "Verification failed: ${e.message}")
             }
     }
 
@@ -147,8 +168,11 @@ class AuthViewModel : ViewModel() {
                             .addOnSuccessListener { document ->
                                 if (!document.exists()) {
                                     // Create new user profile if it doesn't exist
+                                    val emailPrefix = firebaseUser.email?.substringBefore("@") ?: "user"
+                                    val uniqueGoogleUsername = "${emailPrefix}_${firebaseUser.uid.take(4)}"
                                     val newUser = User(
                                         uid = firebaseUser.uid,
+                                        username = uniqueGoogleUsername,
                                         email = firebaseUser.email ?: "",
                                         role = "user",
                                         cigarettePrice = 0.0,
@@ -317,8 +341,22 @@ class AuthViewModel : ViewModel() {
                 Tasks.whenAll(deletes)
             }
 
+        val commentsTask = db.collectionGroup("comments").whereEqualTo("userId", uid).get()
+            .continueWithTask { task ->
+                val deletes = task.result?.documents?.map { it.reference.delete() } ?: emptyList()
+                Tasks.whenAll(deletes)
+            }
+
+        val likesTask = db.collection("forum_posts").whereArrayContains("likedBy", uid).get()
+            .continueWithTask { task ->
+                val updates = task.result?.documents?.map { 
+                    it.reference.update("likedBy", FieldValue.arrayRemove(uid))
+                } ?: emptyList()
+                Tasks.whenAll(updates)
+            }
+
         // 2. Wait for all background data to be deleted
-        Tasks.whenAll(journalsTask, triggerZonesTask, postsTask)
+        Tasks.whenAll(journalsTask, triggerZonesTask, postsTask, commentsTask, likesTask)
             .addOnSuccessListener {
                 Log.d("AuthViewModel", "Related data deleted, now deleting user document")
                 // 3. Delete user document
